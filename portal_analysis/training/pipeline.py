@@ -61,6 +61,7 @@ def load_training_dataset(
         tasks=task_config.resolved_tasks(),
         data_column_name=task_config.data_column_name,
         file_id_separator=task_config.file_id_separator,
+        file_id_strip=task_config.file_id_strip,
         data_subdirectory=task_config.data_subdirectory,
         base_dir=base_dir,
     )

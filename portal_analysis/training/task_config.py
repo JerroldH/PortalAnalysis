@@ -15,6 +15,7 @@ class TaskConfig:
     task_name: str
     data_column_name: str
     file_id_separator: str
+    file_id_strip: str = ""
     label_column: str = "snorkel_label"
     labels_file: str = "weak_supervision_final.csv"
     labels_subdirectory: str = "docs"

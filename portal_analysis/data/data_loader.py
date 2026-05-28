@@ -25,6 +25,7 @@ class TimeSeriesDataLoader:
         tasks: Optional[List[str]] = None,
         data_column_name: str = "Finger Normalized Distance",
         file_id_separator: str = "_finger",
+        file_id_strip: str = "",
         data_subdirectory: str = "distances",
         base_dir: Optional[Path] = None,
     ):
@@ -32,6 +33,7 @@ class TimeSeriesDataLoader:
         self.tasks = tasks if tasks is not None else ["right", "left"]
         self.data_column_name = data_column_name
         self.file_id_separator = file_id_separator
+        self.file_id_strip = file_id_strip
         self.data_subdirectory = data_subdirectory
         self.base_dir = Path(base_dir) if base_dir else get_base_processed_directory()
 
@@ -57,6 +59,8 @@ class TimeSeriesDataLoader:
         return y
 
     def _extract_file_id(self, filename: str) -> str:
+        if self.file_id_strip:
+            filename = filename.replace(self.file_id_strip, "")
         if self.file_id_separator in filename:
             return filename.split(self.file_id_separator)[0]
         return filename

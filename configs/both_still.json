@@ -2,6 +2,7 @@
   "task_name": "both_still",
   "data_column_name": "mean_fingertip_distance_from_center",
   "file_id_separator": "_hand",
+  "file_id_strip": "_both_still",
   "tasks": ["right", "left"],
   "label_column": "snorkel_label_final",
   "labels_file": "weak_supervision_final.csv",
