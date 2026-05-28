@@ -20,7 +20,10 @@ class HandUpDownPipeline(BaseInferencePipeline):
     Quick start::
 
         pipeline = HandUpDownPipeline()
-        result = pipeline.run_from_csv("P001", Path("P001_up_distances.csv"))
+        result = pipeline.run_from_csv(
+            "P001_right",
+            Path(".../distances/P001_right_up_down_distances.csv"),
+        )
         print(result.severity, result.symptoms)
     """
 

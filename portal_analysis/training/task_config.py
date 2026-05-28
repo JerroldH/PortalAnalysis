@@ -24,6 +24,7 @@ class TaskConfig:
     data_subdirectory: str = "distances"
     tasks: Optional[List[str]] = None
     max_sequence_length: int = 450
+    shuffle_random_state: int = 42
     # Signal augmentation
     smooth_window_length: int = 20
     smooth_polyorder: int = 2

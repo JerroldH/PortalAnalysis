@@ -1,0 +1,62 @@
+{
+  "version": "latest",
+  "created_at": "2026-05-28T21:47:11.780445+00:00",
+  "git_sha": "b14cb886072d112c121c0dc392f89a84f841f237",
+  "python_version": "3.12.13 | packaged by conda-forge | (main, Mar  5 2026, 16:36:12) [MSC v.1944 64 bit (AMD64)]",
+  "platform": "Windows-11-10.0.26100-SP0",
+  "sklearn_version": "1.7.2",
+  "task_config": {
+    "task_name": "hand_open_close",
+    "data_column_name": "Normalized Hand Sum Finger Distances",
+    "file_id_separator": "_open",
+    "label_column": "snorkel_label",
+    "labels_file": "weak_supervision_final.csv",
+    "labels_subdirectory": "docs",
+    "label_merge_rules": {
+      "4": 3
+    },
+    "test_set_file": "test-set-balanced.csv",
+    "test_set_subdirectory": "docs",
+    "data_subdirectory": "distances",
+    "tasks": [
+      "right",
+      "left"
+    ],
+    "max_sequence_length": 450,
+    "shuffle_random_state": 32,
+    "smooth_window_length": 20,
+    "smooth_polyorder": 2,
+    "gaussian_sigma": 1.0,
+    "include_fft": true,
+    "include_diffs": false,
+    "augmentation_method": "simple",
+    "rocket_method": "minirocket",
+    "n_kernels": 8100,
+    "random_state": 42,
+    "rocket_augment_data": false,
+    "class_weight": null,
+    "classifier_cv": 10,
+    "classifier_scoring": "neg_mean_absolute_error",
+    "symptom_columns": [
+      "Low Amplitude",
+      "Dec. Amp.",
+      "Low speed",
+      "Halts",
+      "Irregularity"
+    ],
+    "symptoms_file": "symptoms_open_close.csv"
+  },
+  "metrics": {
+    "accuracy": 0.6274509803921569,
+    "mae": 0.49019607843137253,
+    "mse": 0.7254901960784313
+  },
+  "augmenter_config": {
+    "smooth_window_length": 20,
+    "smooth_polyorder": 2,
+    "gaussian_sigma": 1.0,
+    "include_fft": true,
+    "include_diffs": false,
+    "augmentation_method": "simple"
+  }
+}

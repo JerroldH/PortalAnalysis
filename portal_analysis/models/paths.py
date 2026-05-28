@@ -8,7 +8,7 @@ from typing import Optional
 from portal_analysis.config import MODELS_DIRECTORY
 from portal_analysis.training.artifact import METADATA_FILE
 
-ALL_TASKS = ("finger_tapping", "hand_open_close", "hand_up_down")
+ALL_TASKS = ("finger_tapping", "hand_open_close", "hand_up_down", "both_still")
 
 
 def model_dir_for_task(

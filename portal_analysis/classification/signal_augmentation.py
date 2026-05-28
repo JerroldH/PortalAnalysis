@@ -53,17 +53,19 @@ class SignalAugmentation:
         return np.stack([X, X_fft], axis=1)
 
     def augment_full(self, X: np.ndarray) -> np.ndarray:
-        """Original + FFT + 1st diff + 2nd diff → shape (n_samples, 4, series_length)."""
+        """Original + FFT (smoothed) + raw 1st diff + raw 2nd diff → shape (n_samples, 4, series_length).
+
+        Matches the original Hand Movement Analysis implementation: diffs are raw
+        (unsmoothed), FFT has Gaussian smoothing applied.
+        """
         X_diff, X_diff2 = self.compute_differences(X)
-        X_diff_smooth = gaussian_filter1d(X_diff, sigma=self.gaussian_sigma, axis=1)
-        X_diff2_smooth = gaussian_filter1d(X_diff2, sigma=self.gaussian_sigma, axis=1)
 
         features = [X]
         if self.include_fft:
             features.append(self.compute_fft(X, apply_smoothing=True))
         if self.include_diffs:
-            features.append(X_diff_smooth)
-            features.append(X_diff2_smooth)
+            features.append(X_diff)
+            features.append(X_diff2)
 
         return np.stack(features, axis=1) if len(features) > 1 else X[:, np.newaxis, :]
 

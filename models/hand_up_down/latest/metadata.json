@@ -1,0 +1,60 @@
+{
+  "version": "latest",
+  "created_at": "2026-05-28T21:46:31.722929+00:00",
+  "git_sha": "b14cb886072d112c121c0dc392f89a84f841f237",
+  "python_version": "3.12.13 | packaged by conda-forge | (main, Mar  5 2026, 16:36:12) [MSC v.1944 64 bit (AMD64)]",
+  "platform": "Windows-11-10.0.26100-SP0",
+  "sklearn_version": "1.7.2",
+  "task_config": {
+    "task_name": "hand_up_down",
+    "data_column_name": "yaw_rad",
+    "file_id_separator": "_up",
+    "label_column": "snorkel_label",
+    "labels_file": "weak_supervision_final.csv",
+    "labels_subdirectory": "docs",
+    "label_merge_rules": {
+      "4": 3
+    },
+    "test_set_file": "test-set-balanced.csv",
+    "test_set_subdirectory": "docs",
+    "data_subdirectory": "distances",
+    "tasks": [
+      "right",
+      "left"
+    ],
+    "max_sequence_length": 450,
+    "smooth_window_length": 10,
+    "smooth_polyorder": 2,
+    "gaussian_sigma": 1.0,
+    "include_fft": true,
+    "include_diffs": true,
+    "augmentation_method": "full",
+    "rocket_method": "minirocket",
+    "n_kernels": 8100,
+    "random_state": 42,
+    "rocket_augment_data": false,
+    "class_weight": null,
+    "classifier_cv": 10,
+    "classifier_scoring": "neg_mean_absolute_error",
+    "symptom_columns": [
+      "dec. amp.",
+      "low speed",
+      "irregular",
+      "can't turn hand"
+    ],
+    "symptoms_file": "symptoms_up_down.csv"
+  },
+  "metrics": {
+    "accuracy": 0.6071428571428571,
+    "mae": 0.5,
+    "mse": 0.75
+  },
+  "augmenter_config": {
+    "smooth_window_length": 10,
+    "smooth_polyorder": 2,
+    "gaussian_sigma": 1.0,
+    "include_fft": true,
+    "include_diffs": true,
+    "augmentation_method": "full"
+  }
+}

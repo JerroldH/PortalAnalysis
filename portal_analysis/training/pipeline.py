@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 import numpy as np
 import pandas as pd
 from sklearn.linear_model import RidgeClassifierCV
+from sklearn.pipeline import make_pipeline
+from sklearn.preprocessing import StandardScaler
 
 from portal_analysis.classification.representation_extractor import RocketRepresentationExtractor
 from portal_analysis.classification.signal_augmentation import SignalAugmentation
@@ -38,14 +40,15 @@ def _build_rocket(task_config: TaskConfig) -> RocketRepresentationExtractor:
     )
 
 
-def _build_classifier(task_config: TaskConfig) -> RidgeClassifierCV:
-    kwargs = {
-        "cv": task_config.classifier_cv,
-        "scoring": task_config.classifier_scoring,
-    }
+def _build_classifier(task_config: TaskConfig):
+    """Build a StandardScaler → RidgeClassifierCV pipeline matching aeon's MiniRocketClassifier."""
+    ridge_kwargs = {"alphas": np.logspace(-3, 3, 10)}
     if task_config.class_weight is not None:
-        kwargs["class_weight"] = task_config.class_weight
-    return RidgeClassifierCV(**kwargs)
+        ridge_kwargs["class_weight"] = task_config.class_weight
+    return make_pipeline(
+        StandardScaler(with_mean=False),
+        RidgeClassifierCV(**ridge_kwargs),
+    )
 
 
 def load_training_dataset(
@@ -71,7 +74,9 @@ def load_training_dataset(
 
     df_combined = data_loader.load_time_series_data(y.index)
     X, y_aligned, valid_ids = data_loader.prepare_sequences(
-        df_combined, y, maxlen=task_config.max_sequence_length
+        df_combined, y,
+        maxlen=task_config.max_sequence_length,
+        random_state=task_config.shuffle_random_state,
     )
     return data_loader.split_train_test(
         X,
@@ -86,7 +91,7 @@ def fit_pipeline(
     X_train: np.ndarray,
     y_train: np.ndarray,
     task_config: TaskConfig,
-) -> Tuple[SignalAugmentation, RocketRepresentationExtractor, RidgeClassifierCV]:
+) -> Tuple[SignalAugmentation, RocketRepresentationExtractor, Any]:
     augmenter = _build_augmenter(task_config)
     rocket = _build_rocket(task_config)
     classifier = _build_classifier(task_config)
@@ -102,12 +107,14 @@ def fit_pipeline(
     return augmenter, rocket, classifier
 
 
-def predict_sequences(bundle: ArtifactBundle, X: np.ndarray) -> np.ndarray:
-    method = bundle.metadata["augmenter_config"]["augmentation_method"]
-    use_signal_aug = (
-        bundle.metadata["augmenter_config"]["include_fft"]
-        or bundle.metadata["augmenter_config"]["include_diffs"]
-    )
+def predict_sequences(
+    bundle: ArtifactBundle,
+    X: np.ndarray,
+    augmentation_method: Optional[str] = None,
+) -> np.ndarray:
+    aug_cfg = bundle.metadata.get("augmenter_config", {})
+    method = augmentation_method or aug_cfg.get("augmentation_method", "simple")
+    use_signal_aug = bundle.augmenter.include_fft or bundle.augmenter.include_diffs
     if use_signal_aug:
         X = bundle.augmenter.transform(X, method=method)
     X_repr = bundle.rocket.transform(X)
@@ -138,7 +145,9 @@ def train_pipeline(
     metrics = None
     if evaluate and len(X_test) > 0:
         bundle = ArtifactBundle(augmenter, rocket, classifier, {}, Path("."))
-        y_pred = predict_sequences(bundle, X_test)
+        y_pred = predict_sequences(
+            bundle, X_test, augmentation_method=task_config.augmentation_method
+        )
         metrics = print_results(y_test, y_pred, test_ids)
 
     artifact_path = save_artifact_bundle(

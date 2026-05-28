@@ -18,7 +18,10 @@ class HandOpenClosePipeline(BaseInferencePipeline):
     Quick start::
 
         pipeline = HandOpenClosePipeline()
-        result = pipeline.run_from_csv("P001", Path("P001_open_distances.csv"))
+        result = pipeline.run_from_csv(
+            "P001_right",
+            Path(".../distances/P001_right_open_close_distances.csv"),
+        )
         print(result.severity, result.symptoms)
     """
 

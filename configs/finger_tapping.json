@@ -17,7 +17,7 @@
   "rocket_method": "minirocket",
   "n_kernels": 10100,
   "random_state": 42,
-  "rocket_augment_data": true,
+  "rocket_augment_data": false,
   "class_weight": "balanced",
   "classifier_cv": 10,
   "classifier_scoring": "neg_mean_absolute_error",

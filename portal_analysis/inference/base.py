@@ -118,6 +118,32 @@ class BaseInferencePipeline(abc.ABC):
             raw_sequence_length=raw_len,
         )
 
+    def run_from_pose(
+        self,
+        patient_id: str,
+        pose_csv: Path,
+        distances_csv: Optional[Path] = None,
+        symptom_models: Optional[Dict[str, HandMovementModel]] = None,
+        video_width: int = 1920,
+        video_height: int = 1080,
+    ) -> Optional[InferenceResult]:
+        """Convert a MediaPipe pose CSV to distances, then run inference."""
+        from portal_analysis.preprocessing.distances import DistanceCalculator
+
+        pose_csv = Path(pose_csv)
+        if not pose_csv.exists():
+            print(f"[{self.TASK_NAME}] Skipping {patient_id}: pose CSV not found ({pose_csv}).")
+            return None
+
+        if distances_csv is None:
+            distances_csv = pose_csv.parent.parent / "distances" / f"{pose_csv.stem}_distances.csv"
+        else:
+            distances_csv = Path(distances_csv)
+
+        calc = DistanceCalculator(width=video_width, height=video_height)
+        calc.calculate_distances(pose_csv, distances_csv)
+        return self.run_from_csv(patient_id, distances_csv, symptom_models)
+
     def run_from_video(
         self,
         patient_id: str,
@@ -125,15 +151,17 @@ class BaseInferencePipeline(abc.ABC):
         pose_output_dir: Path,
         distances_output_dir: Path,
         symptom_models: Optional[Dict[str, HandMovementModel]] = None,
+        file_prefix: Optional[str] = None,
         video_width: int = 1920,
         video_height: int = 1080,
     ) -> Optional[InferenceResult]:
         from portal_analysis.preprocessing.hand_pose import HandPoseExtractor
-        from portal_analysis.preprocessing.distances import DistanceCalculator
 
         video_path = Path(video_path)
-        pose_path = Path(pose_output_dir) / f"{video_path.stem}.csv"
-        dist_path = Path(distances_output_dir) / f"{video_path.stem}_distances.csv"
+        prefix = file_prefix if file_prefix is not None else patient_id
+        base_name = f"{prefix}_{video_path.stem}"
+        pose_path = Path(pose_output_dir) / f"{base_name}.csv"
+        dist_path = Path(distances_output_dir) / f"{base_name}_distances.csv"
 
         extractor = HandPoseExtractor()
         ok = extractor.process_video(video_path, pose_path)
@@ -142,7 +170,11 @@ class BaseInferencePipeline(abc.ABC):
             print(f"[{self.TASK_NAME}] No hands detected in {video_path.name}")
             return None
 
-        calc = DistanceCalculator(width=video_width, height=video_height)
-        calc.calculate_distances(pose_path, dist_path)
-
-        return self.run_from_csv(patient_id, dist_path, symptom_models)
+        return self.run_from_pose(
+            patient_id,
+            pose_path,
+            distances_csv=dist_path,
+            symptom_models=symptom_models,
+            video_width=video_width,
+            video_height=video_height,
+        )

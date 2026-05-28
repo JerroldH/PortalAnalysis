@@ -18,7 +18,10 @@ class FingerTappingPipeline(BaseInferencePipeline):
     Quick start::
 
         pipeline = FingerTappingPipeline()
-        result = pipeline.run_from_csv("P001", Path("P001_finger_distances.csv"))
+        result = pipeline.run_from_pose(
+            "P001_right",
+            Path(".../pose/P001_right_finger_tapping.csv"),
+        )
         print(result.severity, result.symptoms)
     """
 
