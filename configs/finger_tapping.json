@@ -1,0 +1,31 @@
+{
+  "task_name": "finger_tapping",
+  "data_column_name": "Finger Normalized Distance",
+  "file_id_separator": "_finger",
+  "tasks": ["right", "left"],
+  "label_column": "snorkel_label_final",
+  "labels_file": "weak_supervision_final.csv",
+  "labels_subdirectory": "docs",
+  "label_merge_rules": {"4": 3},
+  "test_set_file": "test-set-balanced.csv",
+  "test_set_subdirectory": "docs",
+  "data_subdirectory": "distances",
+  "smooth_window_length": 20,
+  "include_fft": false,
+  "include_diffs": false,
+  "augmentation_method": "simple",
+  "rocket_method": "minirocket",
+  "n_kernels": 10100,
+  "random_state": 42,
+  "rocket_augment_data": true,
+  "class_weight": "balanced",
+  "classifier_cv": 10,
+  "classifier_scoring": "neg_mean_absolute_error",
+  "symptoms_file": "symptoms_finger_tapping.csv",
+  "symptom_columns": [
+    "AMPLITUDE_Predicted_Label",
+    "DECRAMPLITUDE_Predicted_Label",
+    "SLOWNESS_Predicted_Label",
+    "HALT_HESITATION_Predicted_Label"
+  ]
+}

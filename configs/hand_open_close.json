@@ -1,0 +1,32 @@
+{
+  "task_name": "hand_open_close",
+  "data_column_name": "Normalized Hand Sum Finger Distances",
+  "file_id_separator": "_open",
+  "tasks": ["right", "left"],
+  "label_column": "snorkel_label",
+  "labels_file": "weak_supervision_final.csv",
+  "labels_subdirectory": "docs",
+  "label_merge_rules": {"4": 3},
+  "test_set_file": "test-set-balanced.csv",
+  "test_set_subdirectory": "docs",
+  "data_subdirectory": "distances",
+  "smooth_window_length": 20,
+  "include_fft": false,
+  "include_diffs": false,
+  "augmentation_method": "simple",
+  "rocket_method": "minirocket",
+  "n_kernels": 11100,
+  "random_state": 42,
+  "rocket_augment_data": true,
+  "class_weight": null,
+  "classifier_cv": 10,
+  "classifier_scoring": "neg_mean_absolute_error",
+  "symptoms_file": "symptoms_open_close.csv",
+  "symptom_columns": [
+    "Low Amplitude",
+    "Dec. Amp.",
+    "Low speed",
+    "Halts",
+    "Irregularity"
+  ]
+}

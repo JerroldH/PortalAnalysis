@@ -1,0 +1,31 @@
+{
+  "task_name": "hand_up_down",
+  "data_column_name": "yaw_rad",
+  "file_id_separator": "_up",
+  "tasks": ["right", "left"],
+  "label_column": "snorkel_label",
+  "labels_file": "weak_supervision_final.csv",
+  "labels_subdirectory": "docs",
+  "label_merge_rules": {"4": 3},
+  "test_set_file": "test-set-balanced.csv",
+  "test_set_subdirectory": "docs",
+  "data_subdirectory": "distances",
+  "smooth_window_length": 10,
+  "include_fft": true,
+  "include_diffs": false,
+  "augmentation_method": "simple",
+  "rocket_method": "minirocket",
+  "n_kernels": 8100,
+  "random_state": 42,
+  "rocket_augment_data": false,
+  "class_weight": null,
+  "classifier_cv": 10,
+  "classifier_scoring": "neg_mean_absolute_error",
+  "symptoms_file": "symptoms_up_down.csv",
+  "symptom_columns": [
+    "dec. amp.",
+    "low speed",
+    "irregular",
+    "can't turn hand"
+  ]
+}
