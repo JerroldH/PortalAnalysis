@@ -1,12 +1,34 @@
 """
-Hand pose extraction from video using MediaPipe.
+Hand pose extraction from video using MediaPipe Tasks (HandLandmarker).
 Produces per-frame CSV with 21 hand landmark coordinates and bounding-box dimensions.
 """
 
+from __future__ import annotations
+
+import urllib.request
 from pathlib import Path
+
 import cv2
 import mediapipe as mp
 import pandas as pd
+from mediapipe.tasks import python
+from mediapipe.tasks.python import vision
+
+_HAND_LANDMARKER_MODEL_URL = (
+    "https://storage.googleapis.com/mediapipe-models/"
+    "hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task"
+)
+_DEFAULT_MODEL_PATH = Path(__file__).resolve().parent / "hand_landmarker.task"
+
+
+def _ensure_hand_landmarker_model(path: Path | None = None) -> Path:
+    path = Path(path or _DEFAULT_MODEL_PATH)
+    if path.exists():
+        return path
+    path.parent.mkdir(parents=True, exist_ok=True)
+    print(f"Downloading hand landmarker model to {path} ...")
+    urllib.request.urlretrieve(_HAND_LANDMARKER_MODEL_URL, path)
+    return path
 
 
 class HandPoseExtractor:
@@ -27,13 +49,20 @@ class HandPoseExtractor:
         self,
         min_detection_confidence: float = 0.5,
         min_tracking_confidence: float = 0.5,
+        model_path: Path | str | None = None,
     ):
-        self._mp_hands = mp.solutions.hands.Hands(
-            static_image_mode=False,
-            max_num_hands=2,
-            min_detection_confidence=min_detection_confidence,
+        model_path = _ensure_hand_landmarker_model(
+            Path(model_path) if model_path is not None else None
+        )
+        options = vision.HandLandmarkerOptions(
+            base_options=python.BaseOptions(model_asset_path=str(model_path)),
+            running_mode=vision.RunningMode.VIDEO,
+            num_hands=2,
+            min_hand_detection_confidence=min_detection_confidence,
+            min_hand_presence_confidence=min_tracking_confidence,
             min_tracking_confidence=min_tracking_confidence,
         )
+        self._detector = vision.HandLandmarker.create_from_options(options)
 
     def _bbox(self, landmarks) -> tuple:
         xs = [lm.x for lm in landmarks]
@@ -54,6 +83,7 @@ class HandPoseExtractor:
             return True
 
         cap = cv2.VideoCapture(str(video_path))
+        fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
         rows = []
         frame_number = 0
 
@@ -62,17 +92,21 @@ class HandPoseExtractor:
             if not ret:
                 break
 
-            results = self._mp_hands.process(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+            rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
+            timestamp_ms = int(frame_number * 1000.0 / fps)
+            results = self._detector.detect_for_video(mp_image, timestamp_ms)
 
-            if results.multi_hand_landmarks and results.multi_handedness:
+            if results.hand_landmarks and results.handedness:
                 for hand_id, (hand_lms, handedness) in enumerate(
-                    zip(results.multi_hand_landmarks, results.multi_handedness)
+                    zip(results.hand_landmarks, results.handedness)
                 ):
                     # MediaPipe labels are mirrored for front-facing camera
-                    hand_label = "Left" if handedness.classification[0].label == "Right" else "Right"
-                    w, h = self._bbox(hand_lms.landmark)
+                    label = handedness[0].category_name
+                    hand_label = "Left" if label == "Right" else "Right"
+                    w, h = self._bbox(hand_lms)
                     row = [frame_number, hand_id, hand_label, w, h]
-                    for lm in hand_lms.landmark:
+                    for lm in hand_lms:
                         row.extend([lm.x, lm.y, lm.z])
                     rows.append(row)
 
@@ -103,4 +137,4 @@ class HandPoseExtractor:
             print(f"  [{status}] {video_file.name}")
 
     def close(self) -> None:
-        self._mp_hands.close()
+        self._detector.close()

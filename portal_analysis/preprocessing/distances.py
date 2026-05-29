@@ -13,7 +13,8 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-import mediapipe as mp
+
+from portal_analysis.preprocessing import hand_landmarks as hl
 
 
 class DistanceCalculator:
@@ -35,8 +36,6 @@ class DistanceCalculator:
         "Hand BBox Width",
         "Hand BBox Height",
     ]
-
-    _lm = mp.solutions.hands.HandLandmark
 
     def __init__(self, width: int = 1920, height: int = 1080):
         self.width = width
@@ -60,15 +59,15 @@ class DistanceCalculator:
     def finger_distance(self, landmarks: list) -> float:
         """3-D Euclidean distance between thumb tip and index finger tip."""
         return float(np.linalg.norm(
-            self._lm_vec(landmarks, self._lm.THUMB_TIP) - self._lm_vec(landmarks, self._lm.INDEX_FINGER_TIP)
+            self._lm_vec(landmarks, hl.THUMB_TIP) - self._lm_vec(landmarks, hl.INDEX_FINGER_TIP)
         ))
 
     def normalized_finger_distance(self, landmarks: list) -> float:
         """finger_distance normalised by (wrist→index MCP) + (index MCP→index tip)."""
-        thumb = self._lm_vec(landmarks, self._lm.THUMB_TIP)
-        index_tip = self._lm_vec(landmarks, self._lm.INDEX_FINGER_TIP)
-        wrist = self._lm_vec(landmarks, self._lm.WRIST)
-        mcp = self._lm_vec(landmarks, self._lm.INDEX_FINGER_MCP)
+        thumb = self._lm_vec(landmarks, hl.THUMB_TIP)
+        index_tip = self._lm_vec(landmarks, hl.INDEX_FINGER_TIP)
+        wrist = self._lm_vec(landmarks, hl.WRIST)
+        mcp = self._lm_vec(landmarks, hl.INDEX_FINGER_MCP)
 
         dist = np.linalg.norm(thumb - index_tip)
         norm = np.linalg.norm(wrist - mcp) + np.linalg.norm(mcp - index_tip)
@@ -76,9 +75,9 @@ class DistanceCalculator:
 
     def angular_distance(self, landmarks: list) -> float:
         """Angle (degrees) at the wrist formed by thumb tip and index finger tip."""
-        wrist = self._lm_vec(landmarks, self._lm.WRIST)
-        thumb = self._lm_vec(landmarks, self._lm.THUMB_TIP)
-        index_tip = self._lm_vec(landmarks, self._lm.INDEX_FINGER_TIP)
+        wrist = self._lm_vec(landmarks, hl.WRIST)
+        thumb = self._lm_vec(landmarks, hl.THUMB_TIP)
+        index_tip = self._lm_vec(landmarks, hl.INDEX_FINGER_TIP)
 
         vt = thumb - wrist
         vi = index_tip - wrist
@@ -90,7 +89,7 @@ class DistanceCalculator:
 
     def wrist_coordinates(self, landmarks: list) -> tuple:
         """Scaled wrist (x, y, z)."""
-        w = self._lm_vec(landmarks, self._lm.WRIST)
+        w = self._lm_vec(landmarks, hl.WRIST)
         return tuple(w)
 
     # ------------------------------------------------------------------

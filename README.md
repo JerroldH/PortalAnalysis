@@ -44,34 +44,40 @@ PortalAnalysis/
 
 ## Output structure
 
-End-to-end processing writes intermediate files under the processed data root (`N:/Booth_Processed` by default, or `PORTAL_DATA_DIR`) and final UPDRS severity scores to a results CSV.
+End-to-end processing writes inference artifacts under `results/` at the processed data root (`N:/Booth_Processed` by default, or `PORTAL_DATA_DIR`). Training data may still use the per-task booth layout under each task folder.
 
 ### Processed data layout
 
-When running **video mode**, each task and hand side gets its own subtree:
+**Inference** (video, pose, or csv modes via `scripts/run_inference.py`) records outputs here:
+
+```
+Booth_Processed/
+└── results/
+    ├── inference/                 # per-recording severity (+ optional symptoms)
+    │   └── SUBJECT_DATE_right_finger_tapping_inference.json
+    ├── pose/                      # MediaPipe landmark CSVs (video / pose modes)
+    │   └── SUBJECT_DATE_right_finger_tapping.csv
+    ├── distances/                 # kinematic time series
+    │   └── SUBJECT_DATE_right_finger_tapping_distances.csv
+    └── plots/                     # feature-over-time PNGs
+        └── SUBJECT_DATE_right_finger_tapping_distances.png
+```
+
+All per-recording artifacts share the stem ``{patient_id}_{side}_{task}`` (e.g. ``SUBJECT_DATE_right_finger_tapping``), with task-specific suffixes ``.csv``, ``_distances.csv``, ``_distances.png``, or ``_inference.json``.
+
+**Training / legacy booth layout** (optional; csv mode can still read distances from here):
 
 ```
 Booth_Processed/
 ├── finger_tapping/
 │   ├── right/
-│   │   ├── videos/          # optional; source MP4s if copied here
-│   │   ├── pose/            # per-video landmark CSVs
-│   │   │   └── SUBJECT_DATE_right_finger_tapping.csv
-│   │   └── distances/       # kinematic time series for inference
-│   │       └── SUBJECT_DATE_right_finger_tapping_distances.csv
-│   ├── left/
-│   │   └── …
-│   └── docs/                # training labels & test split (not produced by inference)
-│       ├── weak_supervision_final.csv
-│       └── test-set-balanced.csv
-├── hand_open_close/
-│   ├── right/ … left/
-│   └── docs/ …
-├── hand_up_down/
-│   ├── right/ … left/
-│   └── docs/ …
-└── results/
-    └── inference.csv        # default batch inference output
+│   │   ├── videos/
+│   │   ├── pose/
+│   │   └── distances/
+│   ├── left/ …
+│   └── docs/                # weak_supervision_final.csv, test-set-balanced.csv
+├── hand_open_close/ …
+└── hand_up_down/ …
 ```
 
 
@@ -112,19 +118,38 @@ Matching pose files omit the `_distances` suffix (e.g. `SUBJECT_DATE_right_finge
 
 Each recording yields an **MDS-UPDRS Part III severity** class **0–3** (0 = normal, 1 = slight, 2 = mild, 3 = moderate/severe).
 
-Optional per-symptom labels (`symptom_*` columns) are supported in the API when symptom models are loaded; symptom column names are listed in `configs/*.json`.
+With `--with-symptoms`, each JSON file also includes a `symptoms` object with four **clinical motor signs** (binary 0 = absent, 1 = present):
 
-**Batch inference CSV** (default: `Booth_Processed/results/inference.csv`):
+| Sign | JSON field (`symptoms.*`) |
+|------|---------------------------|
+| Amplitude reduction | `amplitude_reduction` |
+| Sequence effect | `sequence_effect` |
+| Slowness | `slowness` |
+| Halt / hesitation | `halt_hesitation` |
 
-| Column | Description |
-|--------|-------------|
-| `patient_id` | Patient ID + side, e.g. `SUBJECT_DATE_001_right` |
-| `task` | `finger_tapping`, `hand_open_close`, or `hand_up_down` |
-| `subtask` | `right` or `left` |
-| `severity` | Predicted UPDRS severity (0–3), or empty if the distances file was missing/invalid |
-| `raw_sequence_length` | Number of frames/rows in the distances CSV |
+Symptom models are trained separately (`train-symptoms`) and stored under `models/<task>/<version>/symptoms/<sign>/`. Source label columns per task match the Hand-Movement-Analysis symptom notebooks (see `portal_analysis/inference/symptoms.py`).
 
-Six rows per patient when all three tasks and both hands run successfully.
+**Per-recording inference JSON** (`Booth_Processed/results/inference/<recording_id>_inference.json`):
+
+```json
+{
+  "patient_id": "SUBJECT_DATE_001_right_finger_tapping",
+  "task": "finger_tapping",
+  "subtask": "right",
+  "severity": 2,
+  "raw_sequence_length": 412,
+  "symptoms": {
+    "amplitude_reduction": 0,
+    "sequence_effect": 1,
+    "slowness": 0,
+    "halt_hesitation": 0
+  }
+}
+```
+
+The `symptoms` block is omitted when inference runs without `--with-symptoms`. `severity` is `null` if the distances file was missing or invalid.
+
+Six JSON files per patient when all three tasks and both hands run successfully.
 
 ### Training artifacts & evaluation metrics
 
@@ -134,7 +159,12 @@ Training does **not** write pose or distances; it reads existing `distances/` CS
 models/<task>/<version>/
 ├── classifier.joblib
 ├── rocket.joblib
-└── metadata.json      # task config, train/test counts, accuracy/MAE/MSE on held-out test set
+├── metadata.json      # task config, train/test counts, accuracy/MAE/MSE on held-out test set
+└── symptoms/          # optional, after train-symptoms
+    ├── amplitude_reduction/
+    ├── sequence_effect/
+    ├── slowness/
+    └── halt_hesitation/
 ```
 
 `metadata.json` includes a `dataset` object (`n_train`, `n_test`, `n_evaluated`) recording how many sequences were used for training and evaluation.
@@ -164,10 +194,11 @@ pip install -e .
 ```bash
 python -m portal_analysis.cli train --tasks all
 python -m portal_analysis.cli train --tasks all --version v1.0.0
+python -m portal_analysis.cli train-symptoms --tasks all
 python -m portal_analysis.cli evaluate --model models/hand_open_close/v1.0.0
 ```
 
-Artifacts are committed under `models/<task>/<version>/` (see layout above). To release: train with `--version`, commit, tag, push.
+Artifacts are committed under `models/<task>/<version>/` (see layout above). Symptom classifiers live in `models/<task>/<version>/symptoms/<sign>/`. To release: train severity and symptoms with `--version`, commit, tag, push.
 
 ---
 
@@ -177,52 +208,105 @@ Three entry points: **pose** (landmark CSVs), **csv** (feature time series), or 
 
 | Mode | Input | Best for |
 |------|--------|----------|
-| `pose` | `…/pose/<id>_<side>_<task>.csv` | You already ran MediaPipe (or have Booth pose exports) |
-| `csv` | `…/distances/<id>_<side>_<task>_distances.csv` | Feature CSVs ready for all tasks |
+| `pose` | `--pose-path` and/or `…/pose/<id>_<side>_<task>.csv` under `--processed-dir` | You already ran MediaPipe (or have Booth pose exports) |
+| `csv` | `--distances-path` and/or `…/distances/<id>_<side>_<task>_distances.csv` under `--processed-dir` | Feature CSVs ready for all tasks |
 | `video` | `--video-path` and/or MP4s under `--raw-dir` | End-to-end from recordings |
 
 Pose mode writes distances under `distances/` and then predicts severity. **Finger tapping** is fully supported from pose; hand open/close and pronation need distances CSVs with their own columns (use `csv` mode).
 
-Use `--hands left`, `--hands right`, or `--hands both` (default) to run one or both sides per task.
+Use `--hand left`, `--hand right`, or `--hand both` (default) to run one or both sides per task.
 
 ### From pre-computed pose CSVs
 
-Place pose files in the standard layout, then:
+Explicit pose file(s) (same pattern as `--video-path`):
 
 ```bash
 python scripts/run_inference.py \
     --mode pose \
-    --patient-ids 06238_20240813_right \
+    --patient-id SUBJECT_DATE_001 \
     --processed-dir N:/Booth_Processed \
-    --tasks finger_tapping \
-    --hands right \
+    --pose-path "N:/path/to/right_finger_tapping.csv" \
+    --hand right
+```
+
+Task and side are inferred from the filename (e.g. `right_finger_tapping.csv`). Use one `--patient-id` per run. Distances are written under `--processed-dir` in the booth layout.
+
+For non-standard filenames:
+
+```bash
+python scripts/run_inference.py \
+    --mode pose \
+    --patient-id subject_003 \
+    --processed-dir N:/Booth_Processed \
+    --pose-path "N:/path/to/custom_pose_export.csv" \
+    --task finger_tapping \
+    --hand left \
     --video-width 1920 \
-    --video-height 1080 \
-    --model-version latest \
-    --output results/inference.csv
+    --video-height 1080
 ```
 
 `--video-width` / `--video-height` must match the resolution used when the pose was extracted (MediaPipe coords are normalized 0–1 and scaled back to pixels).
 
+Booth directory layout (all pose files for listed patients):
+
+```bash
+python scripts/run_inference.py \
+    --mode pose \
+    --patient-id SUBJECT_DATE_001 \
+    --processed-dir N:/Booth_Processed \
+    --tasks finger_tapping \
+    --hand both
+```
+
 Expected paths (right hand, finger tapping example):
 
 ```
-Booth_Processed/finger_tapping/right/pose/SUBJECT_DATE_001_right_finger_tapping.csv
-→ Booth_Processed/finger_tapping/right/distances/SUBJECT_DATE_001_right_finger_tapping_distances.csv  (written automatically)
+Booth_Processed/results/pose/SUBJECT_DATE_001_right_finger_tapping.csv
+→ Booth_Processed/results/distances/SUBJECT_DATE_001_right_finger_tapping_distances.csv  (written automatically)
+→ Booth_Processed/results/plots/SUBJECT_DATE_001_right_finger_tapping_distances.png
 ```
 
+Legacy pose files under `finger_tapping/<side>/pose/` are still read when present.
+
 ### From pre-computed distances CSVs
+
+Explicit distances file(s):
 
 ```bash
 python scripts/run_inference.py \
     --mode csv \
-    --patient-ids SUBJECT_DATE_001 \
+    --patient-id SUBJECT_DATE_001 \
     --processed-dir N:/Booth_Processed \
-    --model-version latest \
-    --output results/inference.csv
+    --distances-path "N:/path/to/right_finger_tapping_distances.csv" \
+    --hand right
 ```
 
-Use this for **all three tasks** when distances already exist (required for hand open/close and pronation).
+Task and side are inferred from the filename (e.g. `right_finger_tapping_distances.csv` or `SUBJECT_001_right_open_close_distances.csv`). Use one `--patient-id` per run.
+
+For non-standard filenames:
+
+```bash
+python scripts/run_inference.py \
+    --mode csv \
+    --patient-id subject_003 \
+    --processed-dir N:/Booth_Processed \
+    --distances-path "N:/path/to/features.csv" \
+    --task hand_open_close \
+    --hand left
+```
+
+Booth directory layout (all distances for listed patients):
+
+```bash
+python scripts/run_inference.py \
+    --mode csv \
+    --patient-id SUBJECT_DATE_001 \
+    --processed-dir N:/Booth_Processed \
+    --model-version latest \
+    --with-symptoms
+```
+
+Use directory mode for **all three tasks** when distances already exist under the standard layout (required for hand open/close and pronation).
 
 ### From raw videos (full pipeline)
 
@@ -231,20 +315,32 @@ Explicit video file(s):
 ```bash
 python scripts/run_inference.py \
     --mode video \
-    --patient-ids SUBJECT_DATE_001 \
+    --patient-id SUBJECT_DATE_001 \
     --processed-dir N:/Booth_Processed \
     --video-path "N:/path/to/right_finger_tapping.mp4" \
-    --hands right
+    --hand right
 ```
 
-Task and side are inferred from the filename (e.g. `right_finger_tapping.mp4`). Use one `--patient-ids` value per run. With `--hands left` or `--hands right`, only matching videos are processed.
+Task and side are inferred from the filename (e.g. `right_finger_tapping.mp4`). Use one `--patient-id` value per run. With `--hand left` or `--hand right`, only matching videos are processed.
+
+For non-standard filenames, set the task and hand explicitly:
+
+```bash
+python scripts/run_inference.py \
+    --mode video \
+    --patient-id subject_003 \
+    --processed-dir N:/Booth_Processed \
+    --video-path "N:/path/to/FUSBG_PILOT_02_Fingertapping-L-Pre.mp4" \
+    --task finger_tapping \
+    --hand left
+```
 
 Booth directory layout (all videos for listed patients):
 
 ```bash
 python scripts/run_inference.py \
     --mode video \
-    --patient-ids SUBJECT_DATE_001 \
+    --patient-id SUBJECT_DATE_001 \
     --raw-dir "N:/CAMERA Booth Data/Booth" \
     --processed-dir N:/Booth_Processed
 ```

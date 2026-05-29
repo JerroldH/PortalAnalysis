@@ -23,9 +23,9 @@
   "classifier_scoring": "neg_mean_absolute_error",
   "symptoms_file": "symptoms_up_down.csv",
   "symptom_columns": [
-    "dec. amp.",
-    "low speed",
-    "irregular",
-    "can't turn hand"
+    "amplitude_reduction",
+    "sequence_effect",
+    "slowness",
+    "halt_hesitation"
   ]
 }

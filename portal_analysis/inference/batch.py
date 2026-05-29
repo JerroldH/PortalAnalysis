@@ -5,16 +5,21 @@ and consolidates results into a single DataFrame / CSV report.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import pandas as pd
+
+from portal_analysis.inference.symptoms import CANONICAL_SYMPTOMS
 
 from portal_analysis.inference.base import InferenceResult
 from portal_analysis.inference.finger_tapping import FingerTappingPipeline
 from portal_analysis.inference.hand_open_close import HandOpenClosePipeline
 from portal_analysis.inference.hand_up_down import HandUpDownPipeline
+from portal_analysis.inference.symptoms import load_symptom_models_for_tasks
+from portal_analysis.models.model_manager import HandMovementModel
 
 
 @dataclass(frozen=True)
@@ -25,6 +30,26 @@ class VideoInferenceEntry:
     task_name: str
     subtask: str
     video_path: Path
+
+
+@dataclass(frozen=True)
+class DistancesInferenceEntry:
+    """One pre-computed distances CSV for inference."""
+
+    patient_id: str
+    task_name: str
+    subtask: str
+    distances_csv: Path
+
+
+@dataclass(frozen=True)
+class PoseInferenceEntry:
+    """One MediaPipe pose CSV (pose → distances → inference)."""
+
+    patient_id: str
+    task_name: str
+    subtask: str
+    pose_csv: Path
 
 
 class BatchInferencePipeline:
@@ -48,7 +73,7 @@ class BatchInferencePipeline:
             patient_ids=["P001", "P002"],
             distances_dir=Path("N:/Booth_Processed"),
         )
-        results_df.to_csv("booth_inference_results.csv", index=False)
+        batch.save_results(results_df, Path("N:/Booth_Processed"))
     """
 
     TASK_PIPELINE_MAP = {
@@ -82,8 +107,12 @@ class BatchInferencePipeline:
         self,
         model_paths: Optional[Dict[str, Path]] = None,
         model_version: str = "latest",
+        with_symptoms: bool = False,
+        models_root: Optional[Path] = None,
     ):
         model_paths = model_paths or {}
+        self._model_version = model_version
+        self._with_symptoms = with_symptoms
         self._pipelines: Dict[str, object] = {
             task: cls(
                 model_path=model_paths.get(task),
@@ -91,16 +120,114 @@ class BatchInferencePipeline:
             )
             for task, cls in self.TASK_PIPELINE_MAP.items()
         }
+        self._symptom_models: Dict[str, Dict[str, HandMovementModel]] = {}
+        if with_symptoms:
+            self._symptom_models = load_symptom_models_for_tasks(
+                version=model_version,
+                models_root=models_root,
+            )
+            for task_name, models in self._symptom_models.items():
+                if models:
+                    print(
+                        f"[batch] Loaded {len(models)} symptom model(s) for {task_name}"
+                    )
+                else:
+                    print(
+                        f"[batch] Warning: no symptom models found for {task_name} "
+                        f"(version={model_version}). Train with: "
+                        f"python -m portal_analysis.cli train-symptoms --tasks {task_name}"
+                    )
+
+    def _symptom_models_for(self, task_name: str) -> Optional[Dict[str, HandMovementModel]]:
+        if not self._with_symptoms:
+            return None
+        models = self._symptom_models.get(task_name, {})
+        return models if models else None
 
     @staticmethod
+    def results_dir(processed_dir: Path) -> Path:
+        """Root folder for inference outputs (JSON scores, pose, distances, plots)."""
+        return Path(processed_dir) / "results"
+
+    @staticmethod
+    def recording_id(patient_id: str, video_stem: str) -> str:
+        """Recording key matching pose/distances/plots: ``{patient_id}_{video_stem}``."""
+        return f"{patient_id}_{video_stem}"
+
+    @classmethod
+    def inference_output_dir(
+        cls,
+        processed_dir: Path,
+        output_dir: Optional[Path] = None,
+    ) -> Path:
+        """Directory for per-recording JSON scores (default: ``results/inference/``)."""
+        if output_dir is not None:
+            return Path(output_dir)
+        return cls.results_dir(processed_dir) / "inference"
+
+    @classmethod
+    def inference_json_path(
+        cls,
+        processed_dir: Path,
+        recording_id: str,
+        output_dir: Optional[Path] = None,
+    ) -> Path:
+        """``results/inference/<recording_id>_inference.json``."""
+        return cls.inference_output_dir(processed_dir, output_dir) / (
+            f"{recording_id}_inference.json"
+        )
+
+    @staticmethod
+    def row_to_inference_json(row: Dict[str, Any]) -> Dict[str, Any]:
+        """Build JSON object for one recording; nest symptoms when present."""
+        severity = row.get("severity")
+        if severity is not None and pd.notna(severity):
+            severity = int(severity)
+
+        payload: Dict[str, Any] = {
+            "patient_id": row["patient_id"],
+            "task": row["task"],
+            "subtask": row["subtask"],
+            "severity": None if pd.isna(severity) else severity,
+            "raw_sequence_length": int(row.get("raw_sequence_length") or 0),
+        }
+        symptoms = {
+            key: int(row[key])
+            for key in CANONICAL_SYMPTOMS
+            if key in row and row[key] is not None and pd.notna(row[key])
+        }
+        if symptoms:
+            payload["symptoms"] = symptoms
+        return payload
+
+    @classmethod
     def _pose_csv_path(
+        cls,
         processed_dir: Path,
         task_name: str,
         subtask: str,
         patient_id: str,
         video_stem: str,
     ) -> Path:
-        return processed_dir / task_name / subtask / "pose" / f"{patient_id}_{video_stem}.csv"
+        del task_name, subtask  # encoded in video_stem
+        return cls.results_dir(processed_dir) / "pose" / f"{patient_id}_{video_stem}.csv"
+
+    @classmethod
+    def _legacy_pose_csv_path(
+        cls,
+        processed_dir: Path,
+        task_name: str,
+        subtask: str,
+        patient_id: str,
+        video_stem: str,
+    ) -> Path:
+        return (
+            Path(processed_dir)
+            / task_name
+            / subtask
+            / "pose"
+            / f"{patient_id}_{video_stem}.csv"
+        )
 
     @staticmethod
     def normalize_hands(hands: str = "both") -> List[str]:
@@ -124,12 +251,140 @@ class BatchInferencePipeline:
 
     @classmethod
     def resolve_task_subtask_from_stem(cls, stem: str) -> Optional[Tuple[str, str]]:
-        """Map a video filename stem (no extension) to (task_name, subtask)."""
+        """Map a filename stem (no extension) to (task_name, subtask)."""
         for task_name, stems in cls.VIDEO_STEMS.items():
             for subtask, video_stem in stems.items():
                 if stem == video_stem or stem.endswith(f"_{video_stem}"):
                     return task_name, subtask
         return None
+
+    @staticmethod
+    def _stem_for_resolution(stem: str, *, strip_suffix: Optional[str] = None) -> str:
+        if strip_suffix and stem.endswith(strip_suffix):
+            return stem[: -len(strip_suffix)]
+        return stem
+
+    @classmethod
+    def _entries_from_named_paths(
+        cls,
+        patient_id: str,
+        paths: List[Path],
+        *,
+        tasks: Optional[List[str]] = None,
+        hands: str = "both",
+        task: Optional[str] = None,
+        stem_suffix: Optional[str] = None,
+        file_label: str = "file",
+    ) -> List[Tuple[str, str, Path]]:
+        """
+        Shared logic for explicit file paths (video, pose, or distances).
+
+        Returns (task_name, subtask, path) tuples.
+        """
+        if task is not None:
+            if task not in cls.TASK_PIPELINE_MAP:
+                raise ValueError(
+                    f"Unknown task {task!r}. "
+                    f"Choose from: {', '.join(cls.TASK_PIPELINE_MAP)}."
+                )
+            if hands == "both":
+                raise ValueError(
+                    f"With an explicit task, set --hand to left or right "
+                    f"(one {file_label} corresponds to one hand)."
+                )
+            if tasks is not None and task not in tasks:
+                return []
+            subtask = hands
+            return [(task, subtask, Path(path)) for path in paths]
+
+        entries: List[Tuple[str, str, Path]] = []
+        for path in paths:
+            path = Path(path)
+            stem = cls._stem_for_resolution(path.stem, strip_suffix=stem_suffix)
+            resolved = cls.resolve_task_subtask_from_stem(stem)
+            if resolved is None:
+                raise ValueError(
+                    f"Cannot infer task/subtask from {file_label} name '{path.name}'. "
+                    f"Use a known stem such as right_finger_tapping, left_open_close, …, "
+                    f"or pass --task and --hand left|right."
+                )
+            task_name, subtask = resolved
+            if tasks is not None and task_name not in tasks:
+                continue
+            if subtask not in cls.normalize_hands(hands):
+                continue
+            entries.append((task_name, subtask, path))
+        return entries
+
+    @classmethod
+    def entries_from_distances_paths(
+        cls,
+        patient_id: str,
+        distances_paths: List[Path],
+        tasks: Optional[List[str]] = None,
+        hands: str = "both",
+        task: Optional[str] = None,
+    ) -> List[DistancesInferenceEntry]:
+        """
+        Build inference entries from explicit distances CSV paths.
+
+        If *task* is set, use it with *hands* (``left`` or ``right``) for every
+        file. Otherwise task and subtask are inferred from each file's stem
+        (e.g. ``right_finger_tapping_distances.csv`` or
+        ``SUBJECT_001_right_finger_tapping_distances.csv``).
+        """
+        tuples = cls._entries_from_named_paths(
+            patient_id,
+            distances_paths,
+            tasks=tasks,
+            hands=hands,
+            task=task,
+            stem_suffix="_distances",
+            file_label="distances CSV",
+        )
+        return [
+            DistancesInferenceEntry(
+                patient_id=patient_id,
+                task_name=task_name,
+                subtask=subtask,
+                distances_csv=path,
+            )
+            for task_name, subtask, path in tuples
+        ]
+
+    @classmethod
+    def entries_from_pose_paths(
+        cls,
+        patient_id: str,
+        pose_paths: List[Path],
+        tasks: Optional[List[str]] = None,
+        hands: str = "both",
+        task: Optional[str] = None,
+    ) -> List[PoseInferenceEntry]:
+        """
+        Build inference entries from explicit pose CSV paths.
+
+        If *task* is set, use it with *hands* for every file. Otherwise task
+        and subtask are inferred from each file's stem (e.g.
+        ``right_finger_tapping.csv``).
+        """
+        tuples = cls._entries_from_named_paths(
+            patient_id,
+            pose_paths,
+            tasks=tasks,
+            hands=hands,
+            task=task,
+            file_label="pose CSV",
+        )
+        return [
+            PoseInferenceEntry(
+                patient_id=patient_id,
+                task_name=task_name,
+                subtask=subtask,
+                pose_csv=path,
+            )
+            for task_name, subtask, path in tuples
+        ]
 
     @classmethod
     def entries_from_video_paths(
@@ -138,39 +393,52 @@ class BatchInferencePipeline:
         video_paths: List[Path],
         tasks: Optional[List[str]] = None,
         hands: str = "both",
+        task: Optional[str] = None,
     ) -> List[VideoInferenceEntry]:
         """
         Build inference entries from explicit MP4 paths.
 
-        Task and subtask are inferred from each file's stem using VIDEO_STEMS
-        (e.g. ``right_finger_tapping.mp4`` or ``P001_right_finger_tapping.mp4``).
+        If *task* is set, use it with *hands* (``left`` or ``right``) for every
+        video. Otherwise task and subtask are inferred from each file's stem via
+        VIDEO_STEMS (e.g. ``right_finger_tapping.mp4``).
         """
-        entries: List[VideoInferenceEntry] = []
-        for video_path in video_paths:
-            video_path = Path(video_path)
-            resolved = cls.resolve_task_subtask_from_stem(video_path.stem)
-            if resolved is None:
-                raise ValueError(
-                    f"Cannot infer task/subtask from video name '{video_path.name}'. "
-                    f"Use a known stem such as right_finger_tapping, left_open_close, …"
-                )
-            task_name, subtask = resolved
-            if tasks is not None and task_name not in tasks:
-                continue
-            if subtask not in cls.normalize_hands(hands):
-                continue
-            entries.append(
-                VideoInferenceEntry(
-                    patient_id=patient_id,
-                    task_name=task_name,
-                    subtask=subtask,
-                    video_path=video_path,
-                )
+        tuples = cls._entries_from_named_paths(
+            patient_id,
+            video_paths,
+            tasks=tasks,
+            hands=hands,
+            task=task,
+            file_label="video",
+        )
+        return [
+            VideoInferenceEntry(
+                patient_id=patient_id,
+                task_name=task_name,
+                subtask=subtask,
+                video_path=path,
             )
-        return entries
+            for task_name, subtask, path in tuples
+        ]
 
-    @staticmethod
+    @classmethod
     def _distances_csv_path(
+        cls,
+        processed_dir: Path,
+        task_name: str,
+        subtask: str,
+        patient_id: str,
+        video_stem: str,
+    ) -> Path:
+        del task_name, subtask
+        return (
+            cls.results_dir(processed_dir)
+            / "distances"
+            / f"{patient_id}_{video_stem}_distances.csv"
+        )
+
+    @classmethod
+    def _legacy_distances_csv_path(
+        cls,
         processed_dir: Path,
         task_name: str,
         subtask: str,
@@ -178,11 +446,63 @@ class BatchInferencePipeline:
         video_stem: str,
     ) -> Path:
         return (
-            processed_dir
+            Path(processed_dir)
             / task_name
             / subtask
             / "distances"
             / f"{patient_id}_{video_stem}_distances.csv"
+        )
+
+    @classmethod
+    def _resolve_distances_csv_path(
+        cls,
+        processed_dir: Path,
+        task_name: str,
+        subtask: str,
+        patient_id: str,
+        video_stem: str,
+    ) -> Path:
+        """Prefer ``results/distances/``; fall back to legacy booth layout for reads."""
+        results_path = cls._distances_csv_path(
+            processed_dir, task_name, subtask, patient_id, video_stem
+        )
+        if results_path.exists():
+            return results_path
+        legacy = cls._legacy_distances_csv_path(
+            processed_dir, task_name, subtask, patient_id, video_stem
+        )
+        return legacy if legacy.exists() else results_path
+
+    @classmethod
+    def _resolve_pose_csv_path(
+        cls,
+        processed_dir: Path,
+        task_name: str,
+        subtask: str,
+        patient_id: str,
+        video_stem: str,
+    ) -> Path:
+        results_path = cls._pose_csv_path(
+            processed_dir, task_name, subtask, patient_id, video_stem
+        )
+        if results_path.exists():
+            return results_path
+        legacy = cls._legacy_pose_csv_path(
+            processed_dir, task_name, subtask, patient_id, video_stem
+        )
+        return legacy if legacy.exists() else results_path
+
+    @classmethod
+    def _plot_png_path(
+        cls,
+        processed_dir: Path,
+        patient_id: str,
+        video_stem: str,
+    ) -> Path:
+        return (
+            cls.results_dir(processed_dir)
+            / "plots"
+            / f"{patient_id}_{video_stem}_distances.png"
         )
 
     # ------------------------------------------------------------------
@@ -199,13 +519,9 @@ class BatchInferencePipeline:
         """
         Run inference for all patients using pre-computed distances CSVs.
 
-        Expects the booth layout::
-
-            distances_dir/
-              finger_tapping/right/distances/<patient_id>_right_finger_tapping_distances.csv
-              finger_tapping/left/distances/<patient_id>_left_finger_tapping_distances.csv
-              hand_open_close/right/distances/<patient_id>_right_open_close_distances.csv
-              …
+        Reads distances from ``results/distances/`` when present, otherwise the
+        legacy booth layout under each task/subtask. Kinematic plots are written
+        to ``results/plots/``.
 
         Parameters
         ----------
@@ -230,13 +546,19 @@ class BatchInferencePipeline:
 
             for patient_id in patient_ids:
                 for subtask, video_stem in self._subtasks_for_hands(task_name, hands):
-                    csv_path = self._distances_csv_path(
+                    csv_path = self._resolve_distances_csv_path(
                         distances_dir, task_name, subtask, patient_id, video_stem
                     )
+                    plot_path = self._plot_png_path(
+                        distances_dir, patient_id, video_stem
+                    )
 
+                    recording_id = self.recording_id(patient_id, video_stem)
                     result: Optional[InferenceResult] = pipeline.run_from_csv(
-                        patient_id=f"{patient_id}_{subtask}",
+                        patient_id=recording_id,
                         distances_csv=csv_path,
+                        symptom_models=self._symptom_models_for(task_name),
+                        plot_path=plot_path,
                     )
 
                     if result is not None:
@@ -246,12 +568,62 @@ class BatchInferencePipeline:
                         rows.append(row)
                     else:
                         rows.append({
-                            "patient_id": f"{patient_id}_{subtask}",
+                            "patient_id": recording_id,
                             "task": task_name,
                             "subtask": subtask,
                             "severity": None,
                             "raw_sequence_length": 0,
                         })
+
+        df = pd.DataFrame(rows)
+        cols = ["patient_id", "task", "subtask", "severity", "raw_sequence_length"]
+        extra = [c for c in df.columns if c not in cols]
+        return df[cols + extra]
+
+    def run_from_distances_paths(
+        self,
+        entries: List[DistancesInferenceEntry],
+        processed_dir: Optional[Path] = None,
+    ) -> pd.DataFrame:
+        """
+        Run inference from explicit distances CSV paths.
+
+        Parameters
+        ----------
+        entries : list of DistancesInferenceEntry
+            Each entry specifies patient_id, task, subtask, and the distances CSV.
+        """
+        rows = []
+
+        for entry in entries:
+            pipeline = self._pipelines[entry.task_name]
+            video_stem = self.VIDEO_STEMS[entry.task_name][entry.subtask]
+            recording_id = self.recording_id(entry.patient_id, video_stem)
+            plot_path = None
+            if processed_dir is not None:
+                plot_path = self._plot_png_path(
+                    processed_dir, entry.patient_id, video_stem
+                )
+            result = pipeline.run_from_csv(
+                patient_id=recording_id,
+                distances_csv=entry.distances_csv,
+                symptom_models=self._symptom_models_for(entry.task_name),
+                plot_path=plot_path,
+            )
+
+            if result is not None:
+                row = result.as_dict()
+                row["task"] = entry.task_name
+                row["subtask"] = entry.subtask
+            else:
+                row = {
+                    "patient_id": recording_id,
+                    "task": entry.task_name,
+                    "subtask": entry.subtask,
+                    "severity": None,
+                    "raw_sequence_length": 0,
+                }
+            rows.append(row)
 
         df = pd.DataFrame(rows)
         cols = ["patient_id", "task", "subtask", "severity", "raw_sequence_length"]
@@ -274,15 +646,10 @@ class BatchInferencePipeline:
         """
         Run inference from MediaPipe pose CSVs (pose → distances → severity).
 
-        Expects pose files at::
-
-            processed_dir/
-              finger_tapping/right/pose/<patient_id>_right_finger_tapping.csv
-              …
-
-        Distances CSVs are written alongside under ``distances/`` and reused on
-        the next run. Only **finger tapping** is converted from pose in this
-        package; other tasks need pre-computed distances (use ``run_from_csvs``).
+        Reads pose from ``results/pose/`` or the legacy task/subtask layout.
+        Writes distances and plots under ``results/distances/`` and
+        ``results/plots/``. Only **finger tapping** is converted from pose in
+        this package; other tasks need pre-computed distances (use ``run_from_csvs``).
         """
         processed_dir = Path(processed_dir)
         tasks = tasks or list(self.TASK_PIPELINE_MAP.keys())
@@ -300,19 +667,25 @@ class BatchInferencePipeline:
 
             for patient_id in patient_ids:
                 for subtask, video_stem in self._subtasks_for_hands(task_name, hands):
-                    pose_path = self._pose_csv_path(
+                    pose_path = self._resolve_pose_csv_path(
                         processed_dir, task_name, subtask, patient_id, video_stem
                     )
                     dist_path = self._distances_csv_path(
                         processed_dir, task_name, subtask, patient_id, video_stem
                     )
+                    plot_path = self._plot_png_path(
+                        processed_dir, patient_id, video_stem
+                    )
 
+                    recording_id = self.recording_id(patient_id, video_stem)
                     result: Optional[InferenceResult] = pipeline.run_from_pose(
-                        patient_id=f"{patient_id}_{subtask}",
+                        patient_id=recording_id,
                         pose_csv=pose_path,
                         distances_csv=dist_path,
+                        symptom_models=self._symptom_models_for(task_name),
                         video_width=video_width,
                         video_height=video_height,
+                        plot_path=plot_path,
                     )
 
                     if result is not None:
@@ -322,12 +695,83 @@ class BatchInferencePipeline:
                         rows.append(row)
                     else:
                         rows.append({
-                            "patient_id": f"{patient_id}_{subtask}",
+                            "patient_id": recording_id,
                             "task": task_name,
                             "subtask": subtask,
                             "severity": None,
                             "raw_sequence_length": 0,
                         })
+
+        df = pd.DataFrame(rows)
+        if df.empty:
+            return pd.DataFrame(
+                columns=["patient_id", "task", "subtask", "severity", "raw_sequence_length"]
+            )
+        cols = ["patient_id", "task", "subtask", "severity", "raw_sequence_length"]
+        extra = [c for c in df.columns if c not in cols]
+        return df[cols + extra]
+
+    def run_from_pose_paths(
+        self,
+        entries: List[PoseInferenceEntry],
+        processed_dir: Path,
+        video_width: int = 1920,
+        video_height: int = 1080,
+    ) -> pd.DataFrame:
+        """
+        Run inference from explicit pose CSV paths (pose → distances → severity).
+
+        Distances CSVs and plots are written under *processed_dir/results/*.
+        Only **finger tapping** is supported from pose in this package.
+        """
+        processed_dir = Path(processed_dir)
+        rows = []
+
+        for entry in entries:
+            if entry.task_name not in self.TASKS_FROM_POSE:
+                print(
+                    f"[batch] Skipping {entry.pose_csv.name}: pose mode only supports "
+                    f"{sorted(self.TASKS_FROM_POSE)}."
+                )
+                continue
+
+            pipeline = self._pipelines[entry.task_name]
+            video_stem = self.VIDEO_STEMS[entry.task_name][entry.subtask]
+            dist_path = self._distances_csv_path(
+                processed_dir,
+                entry.task_name,
+                entry.subtask,
+                entry.patient_id,
+                video_stem,
+            )
+            plot_path = self._plot_png_path(
+                processed_dir, entry.patient_id, video_stem
+            )
+            recording_id = self.recording_id(entry.patient_id, video_stem)
+
+            result = pipeline.run_from_pose(
+                patient_id=recording_id,
+                pose_csv=entry.pose_csv,
+                distances_csv=dist_path,
+                symptom_models=self._symptom_models_for(entry.task_name),
+                video_width=video_width,
+                video_height=video_height,
+                plot_path=plot_path,
+            )
+
+            if result is not None:
+                row = result.as_dict()
+                row["task"] = entry.task_name
+                row["subtask"] = entry.subtask
+            else:
+                row = {
+                    "patient_id": recording_id,
+                    "task": entry.task_name,
+                    "subtask": entry.subtask,
+                    "severity": None,
+                    "raw_sequence_length": 0,
+                }
+            rows.append(row)
 
         df = pd.DataFrame(rows)
         if df.empty:
@@ -357,24 +801,33 @@ class BatchInferencePipeline:
         entries : list of VideoInferenceEntry
             Each entry specifies patient_id, task, subtask, and the MP4 path.
         processed_dir : Path
-            Root for intermediate pose/distances outputs (booth layout).
+            Root for intermediate outputs under ``results/pose`` and
+            ``results/distances``.
         """
         processed_dir = Path(processed_dir)
         rows = []
 
         for entry in entries:
             pipeline = self._pipelines[entry.task_name]
-            pose_dir = processed_dir / entry.task_name / entry.subtask / "pose"
-            dist_dir = processed_dir / entry.task_name / entry.subtask / "distances"
+            results_root = self.results_dir(processed_dir)
+            pose_dir = results_root / "pose"
+            dist_dir = results_root / "distances"
+            video_stem = self.VIDEO_STEMS[entry.task_name][entry.subtask]
+            plot_path = self._plot_png_path(
+                processed_dir, entry.patient_id, video_stem
+            )
+            recording_id = self.recording_id(entry.patient_id, video_stem)
 
             result = pipeline.run_from_video(
-                patient_id=f"{entry.patient_id}_{entry.subtask}",
+                patient_id=recording_id,
                 video_path=entry.video_path,
                 pose_output_dir=pose_dir,
                 distances_output_dir=dist_dir,
+                symptom_models=self._symptom_models_for(entry.task_name),
                 file_prefix=entry.patient_id,
                 video_width=video_width,
                 video_height=video_height,
+                plot_path=plot_path,
             )
 
             if result is not None:
@@ -383,7 +836,7 @@ class BatchInferencePipeline:
                 row["subtask"] = entry.subtask
             else:
                 row = {
-                    "patient_id": f"{entry.patient_id}_{entry.subtask}",
+                    "patient_id": recording_id,
                     "task": entry.task_name,
                     "subtask": entry.subtask,
                     "severity": None,
@@ -415,7 +868,7 @@ class BatchInferencePipeline:
             raw_video_dir/<patient_id>/finger_tapping/right_finger_tapping.mp4
             …
 
-        Intermediate files are written under *processed_dir*.
+        Intermediate files are written under *processed_dir/results/*.
 
         Returns
         -------
@@ -431,17 +884,24 @@ class BatchInferencePipeline:
                 pipeline = self._pipelines[task_name]
                 for subtask, video_stem in self._subtasks_for_hands(task_name, hands):
                     video_path = raw_video_dir / patient_id / task_name / f"{video_stem}.mp4"
-                    pose_dir = processed_dir / task_name / subtask / "pose"
-                    dist_dir = processed_dir / task_name / subtask / "distances"
+                    results_root = self.results_dir(processed_dir)
+                    pose_dir = results_root / "pose"
+                    dist_dir = results_root / "distances"
+                    plot_path = self._plot_png_path(
+                        processed_dir, patient_id, video_stem
+                    )
 
+                    recording_id = self.recording_id(patient_id, video_stem)
                     result = pipeline.run_from_video(
-                        patient_id=f"{patient_id}_{subtask}",
+                        patient_id=recording_id,
                         video_path=video_path,
                         pose_output_dir=pose_dir,
                         distances_output_dir=dist_dir,
+                        symptom_models=self._symptom_models_for(task_name),
                         file_prefix=patient_id,
                         video_width=video_width,
                         video_height=video_height,
+                        plot_path=plot_path,
                     )
 
                     if result is not None:
@@ -450,7 +910,7 @@ class BatchInferencePipeline:
                         row["subtask"] = subtask
                     else:
                         row = {
-                            "patient_id": f"{patient_id}_{subtask}",
+                            "patient_id": recording_id,
                             "task": task_name,
                             "subtask": subtask,
                             "severity": None,
@@ -467,10 +927,33 @@ class BatchInferencePipeline:
     # Convenience: save results
     # ------------------------------------------------------------------
 
-    @staticmethod
-    def save_results(df: pd.DataFrame, output_path: Path) -> None:
-        """Save results DataFrame to CSV."""
-        output_path = Path(output_path)
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        df.to_csv(output_path, index=False)
-        print(f"Results saved → {output_path}")
+    @classmethod
+    def save_results(
+        cls,
+        df: pd.DataFrame,
+        processed_dir: Path,
+        output_dir: Optional[Path] = None,
+    ) -> List[Path]:
+        """
+        Write one JSON file per recording: ``<recording_id>_inference.json``.
+
+        Symptoms are nested under ``symptoms`` when ``--with-symptoms`` produced them.
+        """
+        if df.empty or "patient_id" not in df.columns:
+            return []
+
+        out_dir = cls.inference_output_dir(processed_dir, output_dir)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        written: List[Path] = []
+
+        for row in df.to_dict(orient="records"):
+            recording_id = row["patient_id"]
+            path = out_dir / f"{recording_id}_inference.json"
+            payload = cls.row_to_inference_json(row)
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(payload, f, indent=2)
+                f.write("\n")
+            written.append(path)
+
+        print(f"Inference JSON → {out_dir} ({len(written)} file(s))")
+        return written

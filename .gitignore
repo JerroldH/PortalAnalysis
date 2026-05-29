@@ -7,3 +7,4 @@ build/
 *.joblib
 !models/**/*.joblib
 !models/.gitkeep
+portal_analysis/preprocessing/hand_landmarker.task

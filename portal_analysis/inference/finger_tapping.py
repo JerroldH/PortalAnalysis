@@ -4,8 +4,8 @@ Inference pipeline for the Finger Tapping task.
 Severity classes (MDS-UPDRS Part III, item 3.4):
     0 = Normal, 1 = Slight, 2 = Mild, 3 = Moderate/Severe
 
-Symptoms predicted:
-    AMPLITUDE, DECRAMPLITUDE, SLOWNESS, HALT_HESITATION
+Symptoms predicted (with ``--with-symptoms``):
+    amplitude_reduction, sequence_effect, slowness, halt_hesitation
 """
 
 from portal_analysis.inference.base import BaseInferencePipeline

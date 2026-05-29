@@ -24,10 +24,9 @@
   "classifier_scoring": "neg_mean_absolute_error",
   "symptoms_file": "symptoms_open_close.csv",
   "symptom_columns": [
-    "Low Amplitude",
-    "Dec. Amp.",
-    "Low speed",
-    "Halts",
-    "Irregularity"
+    "amplitude_reduction",
+    "sequence_effect",
+    "slowness",
+    "halt_hesitation"
   ]
 }

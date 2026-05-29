@@ -25,12 +25,30 @@ class InferenceResult:
     raw_sequence_length: int = 0
 
     def as_dict(self) -> Dict[str, Any]:
+        """Flat dict for tabular display (DataFrame / console)."""
         return {
             "patient_id": self.patient_id,
             "severity": self.severity,
             "raw_sequence_length": self.raw_sequence_length,
-            **{f"symptom_{k}": v for k, v in self.symptoms.items()},
+            **self.symptoms,
         }
+
+    def to_json_dict(
+        self,
+        task: str,
+        subtask: str,
+    ) -> Dict[str, Any]:
+        """Structured payload written to ``<recording_id>_inference.json``."""
+        payload: Dict[str, Any] = {
+            "patient_id": self.patient_id,
+            "task": task,
+            "subtask": subtask,
+            "severity": self.severity,
+            "raw_sequence_length": self.raw_sequence_length,
+        }
+        if self.symptoms:
+            payload["symptoms"] = dict(self.symptoms)
+        return payload
 
 
 class BaseInferencePipeline(abc.ABC):
@@ -96,12 +114,35 @@ class BaseInferencePipeline(abc.ABC):
             symptoms[name] = int(pred[0])
         return symptoms
 
+    def _save_kinematic_plot(
+        self,
+        distances_csv: Path,
+        plot_path: Optional[Path] = None,
+    ) -> None:
+        from portal_analysis.preprocessing.kinematic_plots import (
+            plot_kinematic_feature_over_time,
+        )
+
+        try:
+            plot_kinematic_feature_over_time(
+                distances_csv, self.DATA_COLUMN, plot_path=plot_path
+            )
+        except (ValueError, OSError) as exc:
+            print(f"[{self.TASK_NAME}] Skipping kinematic plot: {exc}")
+
     def run_from_csv(
         self,
         patient_id: str,
         distances_csv: Path,
         symptom_models: Optional[Dict[str, HandMovementModel]] = None,
+        plot_path: Optional[Path] = None,
     ) -> Optional[InferenceResult]:
+        distances_csv = Path(distances_csv)
+        if not distances_csv.exists():
+            return None
+
+        self._save_kinematic_plot(distances_csv, plot_path=plot_path)
+
         X = self._prepare_sequence(distances_csv)
         if X is None:
             print(f"[{self.TASK_NAME}] Skipping {patient_id}: invalid distances CSV.")
@@ -126,6 +167,7 @@ class BaseInferencePipeline(abc.ABC):
         symptom_models: Optional[Dict[str, HandMovementModel]] = None,
         video_width: int = 1920,
         video_height: int = 1080,
+        plot_path: Optional[Path] = None,
     ) -> Optional[InferenceResult]:
         """Convert a MediaPipe pose CSV to distances, then run inference."""
         from portal_analysis.preprocessing.distances import DistanceCalculator
@@ -142,7 +184,9 @@ class BaseInferencePipeline(abc.ABC):
 
         calc = DistanceCalculator(width=video_width, height=video_height)
         calc.calculate_distances(pose_csv, distances_csv)
-        return self.run_from_csv(patient_id, distances_csv, symptom_models)
+        return self.run_from_csv(
+            patient_id, distances_csv, symptom_models, plot_path=plot_path
+        )
 
     def run_from_video(
         self,
@@ -154,6 +198,7 @@ class BaseInferencePipeline(abc.ABC):
         file_prefix: Optional[str] = None,
         video_width: int = 1920,
         video_height: int = 1080,
+        plot_path: Optional[Path] = None,
     ) -> Optional[InferenceResult]:
         from portal_analysis.preprocessing.hand_pose import HandPoseExtractor
 
@@ -177,4 +222,5 @@ class BaseInferencePipeline(abc.ABC):
             symptom_models=symptom_models,
             video_width=video_width,
             video_height=video_height,
+            plot_path=plot_path,
         )

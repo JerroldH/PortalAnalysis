@@ -9,6 +9,7 @@ from portal_analysis.config import MODELS_DIRECTORY
 from portal_analysis.training.artifact import METADATA_FILE
 
 ALL_TASKS = ("finger_tapping", "hand_open_close", "hand_up_down", "both_still")
+INFERENCE_TASKS = ("finger_tapping", "hand_open_close", "hand_up_down")
 
 
 def model_dir_for_task(
@@ -25,6 +26,16 @@ def legacy_model_file(task_name: str, models_root: Optional[Path] = None) -> Pat
     """Legacy single-file layout: models/<task>/<task>_minirocket.joblib"""
     root = Path(models_root) if models_root else MODELS_DIRECTORY
     return root / task_name / f"{task_name}_minirocket.joblib"
+
+
+def symptom_model_dir(
+    task_name: str,
+    symptom_key: str,
+    version: str = "latest",
+    models_root: Optional[Path] = None,
+) -> Path:
+    """Return expected symptom artifact directory: models/<task>/<version>/symptoms/<key>/"""
+    return model_dir_for_task(task_name, version, models_root) / "symptoms" / symptom_key
 
 
 def resolve_model_path(

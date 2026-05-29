@@ -23,9 +23,9 @@
   "classifier_scoring": "neg_mean_absolute_error",
   "symptoms_file": "symptoms_finger_tapping.csv",
   "symptom_columns": [
-    "AMPLITUDE_Predicted_Label",
-    "DECRAMPLITUDE_Predicted_Label",
-    "SLOWNESS_Predicted_Label",
-    "HALT_HESITATION_Predicted_Label"
+    "amplitude_reduction",
+    "sequence_effect",
+    "slowness",
+    "halt_hesitation"
   ]
 }

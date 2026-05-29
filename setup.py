@@ -17,6 +17,7 @@ setup(
         "mediapipe",
         "opencv-python",
         "tqdm",
+        "matplotlib",
     ],
     entry_points={
         "console_scripts": [

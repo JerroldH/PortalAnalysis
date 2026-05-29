@@ -4,8 +4,8 @@ Inference pipeline for the Hand Pronation-Supination (Up/Down) task.
 Severity classes (MDS-UPDRS Part III, item 3.6):
     0 = Normal, 1 = Slight, 2 = Mild, 3 = Moderate/Severe
 
-Symptoms predicted:
-    dec. amp., low speed, irregular, can't turn hand
+Symptoms predicted (with ``--with-symptoms``):
+    amplitude_reduction, sequence_effect, slowness, halt_hesitation
 
 Note: This task uses FFT augmentation (include_fft=True) matching the training config.
 """
