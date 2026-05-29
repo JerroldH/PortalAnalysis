@@ -1,0 +1,71 @@
+{
+  "version": "v1.0.0",
+  "created_at": "2026-05-29T21:41:24.611105+00:00",
+  "git_sha": "4a2aa93e01c1a5f62083f26e684daf01a8990408",
+  "python_version": "3.12.13 | packaged by conda-forge | (main, Mar  5 2026, 16:36:12) [MSC v.1944 64 bit (AMD64)]",
+  "platform": "Windows-11-10.0.26200-SP0",
+  "sklearn_version": "1.7.2",
+  "task_config": {
+    "task_name": "finger_tapping",
+    "data_column_name": "Finger Normalized Distance",
+    "file_id_separator": "_finger",
+    "file_id_strip": "",
+    "label_column": "amplitude_reduction",
+    "labels_file": "symptoms_finger_tapping.csv",
+    "labels_subdirectory": "docs",
+    "label_merge_rules": {
+      "4": 3
+    },
+    "test_set_file": "test-set-balanced.csv",
+    "test_set_subdirectory": "docs",
+    "data_subdirectory": "distances",
+    "tasks": [
+      "right",
+      "left"
+    ],
+    "max_sequence_length": 450,
+    "shuffle_random_state": 42,
+    "smooth_window_length": 20,
+    "smooth_polyorder": 2,
+    "gaussian_sigma": 1.0,
+    "include_fft": true,
+    "include_diffs": false,
+    "augmentation_method": "simple",
+    "rocket_method": "minirocket",
+    "n_kernels": 10100,
+    "random_state": 42,
+    "rocket_augment_data": false,
+    "class_weight": "balanced",
+    "classifier_cv": 10,
+    "classifier_scoring": "neg_mean_absolute_error",
+    "symptom_columns": [
+      "amplitude_reduction",
+      "sequence_effect",
+      "slowness",
+      "halt_hesitation"
+    ],
+    "symptoms_file": "symptoms_finger_tapping.csv"
+  },
+  "metrics": {
+    "accuracy": 0.7857142857142857,
+    "mae": 0.21428571428571427,
+    "mse": 0.21428571428571427
+  },
+  "dataset": {
+    "n_train": 315,
+    "n_test": 56,
+    "n_evaluated": 56,
+    "symptom_key": "amplitude_reduction",
+    "source_columns": [
+      "AMPLITUDE_Predicted_Label"
+    ]
+  },
+  "augmenter_config": {
+    "smooth_window_length": 20,
+    "smooth_polyorder": 2,
+    "gaussian_sigma": 1.0,
+    "include_fft": true,
+    "include_diffs": false,
+    "augmentation_method": "simple"
+  }
+}
