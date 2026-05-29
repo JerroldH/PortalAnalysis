@@ -1,0 +1,72 @@
+{
+  "version": "latest",
+  "created_at": "2026-05-29T21:39:58.204011+00:00",
+  "git_sha": "4a2aa93e01c1a5f62083f26e684daf01a8990408",
+  "python_version": "3.12.13 | packaged by conda-forge | (main, Mar  5 2026, 16:36:12) [MSC v.1944 64 bit (AMD64)]",
+  "platform": "Windows-11-10.0.26200-SP0",
+  "sklearn_version": "1.7.2",
+  "task_config": {
+    "task_name": "hand_up_down",
+    "data_column_name": "yaw_rad",
+    "file_id_separator": "_up",
+    "file_id_strip": "",
+    "label_column": "halt_hesitation",
+    "labels_file": "symptoms_up_down.csv",
+    "labels_subdirectory": "docs",
+    "label_merge_rules": {
+      "4": 3
+    },
+    "test_set_file": "test-set-balanced.csv",
+    "test_set_subdirectory": "docs",
+    "data_subdirectory": "distances",
+    "tasks": [
+      "right",
+      "left"
+    ],
+    "max_sequence_length": 450,
+    "shuffle_random_state": 42,
+    "smooth_window_length": 10,
+    "smooth_polyorder": 2,
+    "gaussian_sigma": 1.0,
+    "include_fft": true,
+    "include_diffs": true,
+    "augmentation_method": "full",
+    "rocket_method": "minirocket",
+    "n_kernels": 8100,
+    "random_state": 42,
+    "rocket_augment_data": false,
+    "class_weight": null,
+    "classifier_cv": 10,
+    "classifier_scoring": "neg_mean_absolute_error",
+    "symptom_columns": [
+      "amplitude_reduction",
+      "sequence_effect",
+      "slowness",
+      "halt_hesitation"
+    ],
+    "symptoms_file": "symptoms_up_down.csv"
+  },
+  "metrics": {
+    "accuracy": 0.7307692307692307,
+    "mae": 0.2692307692307692,
+    "mse": 0.2692307692307692
+  },
+  "dataset": {
+    "n_train": 186,
+    "n_test": 26,
+    "n_evaluated": 26,
+    "symptom_key": "halt_hesitation",
+    "source_columns": [
+      "irregular",
+      "can't turn hand"
+    ]
+  },
+  "augmenter_config": {
+    "smooth_window_length": 10,
+    "smooth_polyorder": 2,
+    "gaussian_sigma": 1.0,
+    "include_fft": true,
+    "include_diffs": true,
+    "augmentation_method": "full"
+  }
+}
