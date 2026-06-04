@@ -145,7 +145,17 @@ class BaseInferencePipeline(abc.ABC):
 
         X = self._prepare_sequence(distances_csv)
         if X is None:
-            print(f"[{self.TASK_NAME}] Skipping {patient_id}: invalid distances CSV.")
+            df = pd.read_csv(distances_csv)
+            if self.DATA_COLUMN not in df.columns:
+                print(
+                    f"[{self.TASK_NAME}] Skipping {patient_id}: "
+                    f"distances CSV missing column {self.DATA_COLUMN!r}."
+                )
+            else:
+                print(
+                    f"[{self.TASK_NAME}] Skipping {patient_id}: "
+                    f"too few frames in {self.DATA_COLUMN!r} (< 5)."
+                )
             return None
 
         severity = int(self.model.predict(X)[0])

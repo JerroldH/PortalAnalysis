@@ -82,8 +82,8 @@ class BatchInferencePipeline:
         "hand_up_down": HandUpDownPipeline,
     }
 
-    # Tasks whose pose CSVs are converted to distances via DistanceCalculator.
-    TASKS_FROM_POSE = frozenset({"finger_tapping"})
+    # Tasks whose pose CSVs are converted to distances before inference.
+    TASKS_FROM_POSE = frozenset({"finger_tapping", "hand_open_close", "hand_up_down"})
 
     HAND_SIDES = ("left", "right")
 
@@ -648,8 +648,7 @@ class BatchInferencePipeline:
 
         Reads pose from ``results/pose/`` or the legacy task/subtask layout.
         Writes distances and plots under ``results/distances/`` and
-        ``results/plots/``. Only **finger tapping** is converted from pose in
-        this package; other tasks need pre-computed distances (use ``run_from_csvs``).
+        ``results/plots/``. All three inference tasks are converted from pose.
         """
         processed_dir = Path(processed_dir)
         tasks = tasks or list(self.TASK_PIPELINE_MAP.keys())
@@ -722,7 +721,7 @@ class BatchInferencePipeline:
         Run inference from explicit pose CSV paths (pose → distances → severity).
 
         Distances CSVs and plots are written under *processed_dir/results/*.
-        Only **finger tapping** is supported from pose in this package.
+        All three inference tasks are supported from pose.
         """
         processed_dir = Path(processed_dir)
         rows = []

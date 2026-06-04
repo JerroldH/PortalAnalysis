@@ -105,12 +105,23 @@ Time-series features derived from pose. **Finger tapping** files are written by 
 | `Wrist Coordinate` | Scaled wrist position |
 | `Hand BBox Width`, `Hand BBox Height` | Hand bounding box (pixels) |
 
-**Hand open/close** and **pronation–supination** use task-specific columns already present in `Booth_Processed`:
+**Hand open/close** distances are written by `DistanceCalculator.calculate_hand_open_close_distances` (same formulas as `BoothReports` `hand_movement_distances.py`) or read from `Booth_Processed`:
 
-| Task | Inference column |
-|------|------------------|
-| Hand open/close | `Normalized Hand Sum Finger Distances` |
-| Pronation–supination | `yaw_rad` |
+| Column | Description |
+|--------|-------------|
+| `Hand Sum Finger Distances` | Sum of wrist-to-fingertip 3-D distances (five digits, pixel units) |
+| `Normalized Hand Sum Finger Distances` | Hand sum divided by wrist→thumb CMC distance (**used for inference**) |
+| `Finger Normalized Distance` | Mean fingertip-to-palm-centre distance normalised by palm size (index–pinky tips) |
+| `Angular Distance` | 2-D angle (degrees) at middle MCP (wrist→MCP vs MCP→middle tip) |
+
+**Pronation–supination** distances are written by `HandMovementAnglesProcessor` (same as BoothReports `hand_movement_angles_processor.py`):
+
+| Column | Description |
+|--------|-------------|
+| `yaw_rad` | Palm yaw angle in radians (**used for inference**) |
+| `pitch_rad`, `roll_rad` | Other Euler angles |
+| `R00`…`R22`, `quat_*` | Palm rotation matrix and quaternion |
+| `*_angle`, `hand_span`, … | Finger joint angles and pose metrics |
 
 Matching pose files omit the `_distances` suffix (e.g. `SUBJECT_DATE_right_finger_tapping.csv`).
 
@@ -212,7 +223,7 @@ Three entry points: **pose** (landmark CSVs), **csv** (feature time series), or 
 | `csv` | `--distances-path` and/or `…/distances/<id>_<side>_<task>_distances.csv` under `--processed-dir` | Feature CSVs ready for all tasks |
 | `video` | `--video-path` and/or MP4s under `--raw-dir` | End-to-end from recordings |
 
-Pose mode writes distances under `distances/` and then predicts severity. **Finger tapping** is fully supported from pose; hand open/close and pronation need distances CSVs with their own columns (use `csv` mode).
+Pose mode writes distances under `distances/` and then predicts severity. All three tasks (finger tapping, hand open/close, pronation–supination) are supported from pose.
 
 Use `--hand left`, `--hand right`, or `--hand both` (default) to run one or both sides per task.
 
