@@ -248,7 +248,7 @@ class DistanceCalculator:
                     row_data["hand_height"] * self.height,
                 ])
 
-        print(f"  Distances → {output_path}")
+        print(f"  Distances -> {output_path}")
         return output_path
 
     def calculate_hand_open_close_distances(
@@ -291,7 +291,7 @@ class DistanceCalculator:
                     self.hand_sum_finger_distances(landmarks),
                 ])
 
-        print(f"  Distances → {output_path}")
+        print(f"  Distances -> {output_path}")
         return output_path
 
     def calculate_hand_up_down_distances(
@@ -317,7 +317,7 @@ class DistanceCalculator:
 
         processor = HandMovementAnglesProcessor(width=self.width, height=self.height)
         processor.process_csv_file(pose_csv, output_path)
-        print(f"  Distances → {output_path}")
+        print(f"  Distances -> {output_path}")
         return output_path
 
     def process_task(self, base_processed_dir: Path, task: str, subtask: str) -> None:

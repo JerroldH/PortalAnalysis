@@ -119,8 +119,12 @@ class BothStillPipeline(BaseInferencePipeline):
             distances_csv = Path(distances_csv)
 
         recording_id = self.hand_distances_stem(patient_id, subtask)
-        result = self.run_from_csv(
-            recording_id, distances_csv, symptom_models, plot_path=plot_path
+        result = self._with_artifact(
+            self.run_from_csv(
+                recording_id, distances_csv, symptom_models, plot_path=plot_path
+            ),
+            "pose_csv",
+            pose_csv,
         )
         return result
 
@@ -154,13 +158,17 @@ class BothStillPipeline(BaseInferencePipeline):
                 return None
 
         proc_dir = processed_dir if processed_dir is not None else Path(distances_output_dir).parent.parent
-        return self.run_from_pose(
-            patient_id,
-            pose_path,
-            symptom_models=symptom_models,
-            video_width=video_width,
-            video_height=video_height,
-            plot_path=plot_path,
-            subtask=subtask,
-            processed_dir=proc_dir,
+        return self._with_artifact(
+            self.run_from_pose(
+                patient_id,
+                pose_path,
+                symptom_models=symptom_models,
+                video_width=video_width,
+                video_height=video_height,
+                plot_path=plot_path,
+                subtask=subtask,
+                processed_dir=proc_dir,
+            ),
+            "video_path",
+            video_path,
         )

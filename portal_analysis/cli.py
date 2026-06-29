@@ -92,7 +92,7 @@ def cmd_predict(args: argparse.Namespace) -> None:
 
     if args.output:
         np.save(args.output, y_pred)
-        print(f"Saved → {args.output}")
+        print(f"Saved -> {args.output}")
 
 
 def build_parser() -> argparse.ArgumentParser:

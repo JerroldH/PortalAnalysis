@@ -154,4 +154,4 @@ class ModelManager:
             },
             path,
         )
-        print(f"  Saved legacy model → {path}")
+        print(f"  Saved legacy model -> {path}")

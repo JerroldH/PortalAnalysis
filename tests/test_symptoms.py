@@ -68,11 +68,22 @@ def test_inference_result_symptom_columns():
             "slowness": 1,
             "halt_hesitation": 0,
         },
+        severity_probabilities={"0": 0.1, "1": 0.2, "2": 0.6, "3": 0.1},
+        confidence=0.6,
+        quality_status="VALID",
+        quality={"raw_sequence_length": 100, "valid_signal_count": 100},
+        clinical_features={"signal_range": 0.3},
+        artifacts={"distances_csv": "distances.csv"},
     )
     d = result.as_dict()
     assert d["amplitude_reduction"] == 1
+    assert d["confidence"] == 0.6
     json_payload = result.to_json_dict("finger_tapping", "right")
     assert json_payload["symptoms"]["halt_hesitation"] == 0
+    assert json_payload["severity_probabilities"]["2"] == 0.6
+    assert json_payload["quality_status"] == "VALID"
+    assert json_payload["clinical_features"]["signal_range"] == 0.3
+    assert json_payload["artifacts"]["distances_csv"] == "distances.csv"
     assert "amplitude_reduction" not in json_payload
 
 

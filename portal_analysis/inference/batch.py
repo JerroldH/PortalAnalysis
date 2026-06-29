@@ -201,7 +201,19 @@ class BatchInferencePipeline:
         )
 
     @staticmethod
-    def row_to_inference_json(row: Dict[str, Any]) -> Dict[str, Any]:
+    def _mapping_value(value: Any) -> Dict[str, Any]:
+        if isinstance(value, dict):
+            return value
+        if isinstance(value, str) and value:
+            try:
+                parsed = json.loads(value)
+            except json.JSONDecodeError:
+                return {}
+            return parsed if isinstance(parsed, dict) else {}
+        return {}
+
+    @classmethod
+    def row_to_inference_json(cls, row: Dict[str, Any]) -> Dict[str, Any]:
         """Build JSON object for one recording; nest symptoms when present."""
         severity = row.get("severity")
         if severity is not None and pd.notna(severity):
@@ -214,6 +226,24 @@ class BatchInferencePipeline:
             "severity": None if pd.isna(severity) else severity,
             "raw_sequence_length": int(row.get("raw_sequence_length") or 0),
         }
+        confidence = row.get("confidence")
+        if confidence is not None and pd.notna(confidence):
+            payload["confidence"] = float(confidence)
+
+        quality_status = row.get("quality_status")
+        if quality_status is not None and pd.notna(quality_status):
+            payload["quality_status"] = str(quality_status)
+
+        for key in (
+            "severity_probabilities",
+            "quality",
+            "clinical_features",
+            "artifacts",
+        ):
+            value = cls._mapping_value(row.get(key))
+            if value:
+                payload[key] = value
+
         symptoms = {
             key: int(row[key])
             for key in CANONICAL_SYMPTOMS
@@ -1110,5 +1140,5 @@ class BatchInferencePipeline:
                 f.write("\n")
             written.append(path)
 
-        print(f"Inference JSON → {out_dir} ({len(written)} file(s))")
+        print(f"Inference JSON -> {out_dir} ({len(written)} file(s))")
         return written

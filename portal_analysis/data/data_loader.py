@@ -7,7 +7,24 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 from pathlib import Path
-from tensorflow.keras.preprocessing.sequence import pad_sequences
+try:
+    from tensorflow.keras.preprocessing.sequence import pad_sequences
+except ModuleNotFoundError:
+    def pad_sequences(
+        sequences,
+        maxlen: int,
+        dtype: str = "float32",
+        padding: str = "post",
+        truncating: str = "post",
+        value: float = 0.0,
+    ) -> np.ndarray:
+        if padding != "post" or truncating != "post":
+            raise ValueError("Fallback pad_sequences only supports post padding/truncating.")
+        output = np.full((len(sequences), maxlen), value, dtype=dtype)
+        for row, sequence in enumerate(sequences):
+            values = np.asarray(sequence, dtype=dtype)[:maxlen]
+            output[row, : len(values)] = values
+        return output
 from tqdm import tqdm
 
 from portal_analysis.training.settings import get_base_processed_directory

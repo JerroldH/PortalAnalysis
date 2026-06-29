@@ -60,6 +60,10 @@ class HandUpDownPipeline(BaseInferencePipeline):
 
         calc = DistanceCalculator(width=video_width, height=video_height)
         calc.calculate_hand_up_down_distances(pose_csv, distances_csv)
-        return self.run_from_csv(
-            patient_id, distances_csv, symptom_models, plot_path=plot_path
+        return self._with_artifact(
+            self.run_from_csv(
+                patient_id, distances_csv, symptom_models, plot_path=plot_path
+            ),
+            "pose_csv",
+            pose_csv,
         )

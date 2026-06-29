@@ -105,7 +105,13 @@ def test_save_results_writes_json_with_nested_symptoms(tmp_path: Path):
                 "task": "finger_tapping",
                 "subtask": "right",
                 "severity": 2,
+                "severity_probabilities": {"0": 0.1, "1": 0.2, "2": 0.6, "3": 0.1},
+                "confidence": 0.6,
                 "raw_sequence_length": 100,
+                "quality_status": "VALID",
+                "quality": {"raw_sequence_length": 100, "valid_signal_count": 100},
+                "clinical_features": {"signal_range": 0.3},
+                "artifacts": {"distances_csv": "distances.csv"},
                 "amplitude_reduction": 0,
                 "slowness": 1,
             }
@@ -115,8 +121,66 @@ def test_save_results_writes_json_with_nested_symptoms(tmp_path: Path):
     assert len(written) == 1
     payload = json.loads(written[0].read_text(encoding="utf-8"))
     assert payload["severity"] == 2
+    assert payload["severity_probabilities"]["2"] == 0.6
+    assert payload["confidence"] == 0.6
+    assert payload["quality_status"] == "VALID"
+    assert payload["quality"]["valid_signal_count"] == 100
+    assert payload["clinical_features"]["signal_range"] == 0.3
+    assert payload["artifacts"]["distances_csv"] == "distances.csv"
     assert payload["symptoms"] == {"amplitude_reduction": 0, "slowness": 1}
     assert "sequence_effect" not in payload["symptoms"]
+
+
+def test_clinical_summary_handles_empty_signal():
+    from portal_analysis.inference.finger_tapping import FingerTappingPipeline
+
+    pipeline = FingerTappingPipeline()
+    frame = pd.DataFrame({"Finger Normalized Distance": [None, None]})
+
+    status, quality, clinical = pipeline._quality_and_clinical_features(frame)
+
+    assert status == "TOO_SHORT"
+    assert quality["valid_signal_count"] == 0
+    assert clinical == {}
+
+
+def test_run_from_csv_adds_evidence_fields(tmp_path: Path):
+    import numpy as np
+
+    from portal_analysis.inference.finger_tapping import FingerTappingPipeline
+
+    distances_csv = tmp_path / "distances.csv"
+    pd.DataFrame({"Finger Normalized Distance": [0.1, 0.2, 0.4, 0.3, 0.2, 0.1]}).to_csv(
+        distances_csv, index=False
+    )
+
+    class Model:
+        classes = np.array([0, 1, 2, 3])
+
+        def predict(self, X):
+            return np.array([2])
+
+        def predict_proba(self, X):
+            return np.array([[0.1, 0.2, 0.6, 0.1]])
+
+    pipeline = FingerTappingPipeline()
+    pipeline._model = Model()
+    pipeline._save_kinematic_plot = lambda distances_csv, plot_path=None: None
+
+    result = pipeline.run_from_csv(
+        "P001_right_finger_tapping",
+        distances_csv,
+        plot_path=tmp_path / "plot.png",
+    )
+
+    assert result.severity == 2
+    assert result.severity_probabilities["2"] == 0.6
+    assert result.confidence == 0.6
+    assert result.quality_status == "VALID"
+    assert result.quality["valid_signal_count"] == 6
+    assert result.clinical_features["signal_range"] == pytest.approx(0.3)
+    assert result.artifacts["distances_csv"] == str(distances_csv)
+    assert result.artifacts["plot_path"] == str(tmp_path / "plot.png")
 
 
 def test_inference_artifact_paths_under_results(tmp_path: Path):
