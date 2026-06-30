@@ -65,7 +65,7 @@ class TimeSeriesDataLoader:
             self.base_dir / self.task_name / labels_subdirectory / labels_file
         )
         df_labels = pd.read_csv(labels_path).set_index("ID")
-        y = df_labels[label_column]
+        y = pd.to_numeric(df_labels[label_column], errors="coerce")
         y = y[~y.index.duplicated(keep="first")]
         y.dropna(inplace=True)
 
@@ -73,7 +73,7 @@ class TimeSeriesDataLoader:
             for source_label, target_label in label_merge_rules.items():
                 y[y == source_label] = target_label
 
-        return y
+        return y[y.isin([0, 1, 2, 3])].astype(int)
 
     def _extract_file_id(self, filename: str) -> str:
         if self.file_id_strip:

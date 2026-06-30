@@ -28,9 +28,10 @@ def task_config():
 def test_fit_save_load_predict(task_config):
     rng = np.random.default_rng(42)
     X_train = rng.normal(size=(12, 50)).astype(np.float32)
-    y_train = rng.integers(0, 3, size=12)
+    y_train = np.repeat([0, 1, 2], 4)
 
     augmenter, rocket, classifier = fit_pipeline(X_train, y_train, task_config)
+    assert hasattr(classifier, "predict_proba")
 
     with tempfile.TemporaryDirectory() as tmp:
         out = Path(tmp) / "model"
@@ -54,4 +55,7 @@ def test_fit_save_load_predict(task_config):
 
     X_test = rng.normal(size=(3, 50)).astype(np.float32)
     preds = predict_sequences(bundle, X_test)
+    probabilities = bundle.classifier.predict_proba(bundle.rocket.transform(X_test))
     assert preds.shape == (3,)
+    assert probabilities.shape == (3, 4)
+    assert np.allclose(probabilities.sum(axis=1), 1.0)

@@ -7,6 +7,7 @@ from typing import Any, Dict, Optional, Tuple
 
 import numpy as np
 import pandas as pd
+from sklearn.calibration import CalibratedClassifierCV
 from sklearn.linear_model import RidgeClassifierCV
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
@@ -40,14 +41,75 @@ def _build_rocket(task_config: TaskConfig) -> RocketRepresentationExtractor:
     )
 
 
-def _build_classifier(task_config: TaskConfig):
-    """Build a StandardScaler → RidgeClassifierCV pipeline matching aeon's MiniRocketClassifier."""
-    ridge_kwargs = {"alphas": np.logspace(-3, 3, 10)}
-    if task_config.class_weight is not None:
-        ridge_kwargs["class_weight"] = task_config.class_weight
-    return make_pipeline(
-        StandardScaler(with_mean=False),
-        RidgeClassifierCV(**ridge_kwargs),
+class OrdinalCalibratedRidgeClassifier:
+    """Ordinal threshold classifier with calibrated Ridge probabilities."""
+
+    def __init__(self, alphas=None, class_weight=None, cv: int = 3):
+        self.alphas = alphas
+        self.class_weight = class_weight
+        self.cv = cv
+        self.classes_ = np.array([0, 1, 2, 3])
+        self.thresholds_ = [1, 2, 3]
+        self.models_ = []
+
+    def fit(self, X, y):
+        y = np.asarray(y)
+        alphas = self.alphas if self.alphas is not None else np.logspace(-3, 3, 10)
+        self.models_ = []
+        for threshold in self.thresholds_:
+            binary_y = (y >= threshold).astype(int)
+            counts = np.bincount(binary_y, minlength=2)
+            if counts.min() < self.cv:
+                self.models_.append(float(binary_y.mean()))
+                continue
+            ridge_kwargs = {"alphas": alphas}
+            if self.class_weight is not None:
+                ridge_kwargs["class_weight"] = self.class_weight
+            base_classifier = make_pipeline(
+                StandardScaler(with_mean=False),
+                RidgeClassifierCV(**ridge_kwargs),
+            )
+            model = CalibratedClassifierCV(
+                base_classifier,
+                method="sigmoid",
+                cv=self.cv,
+            )
+            model.fit(X, binary_y)
+            self.models_.append(model)
+        return self
+
+    def _cumulative_probabilities(self, X):
+        columns = []
+        for model in self.models_:
+            if isinstance(model, float):
+                columns.append(np.full(X.shape[0], model))
+            else:
+                positive_index = int(np.where(model.classes_ == 1)[0][0])
+                columns.append(model.predict_proba(X)[:, positive_index])
+        cumulative = np.clip(np.vstack(columns).T, 0.0, 1.0)
+        cumulative[:, 1] = np.minimum(cumulative[:, 1], cumulative[:, 0])
+        cumulative[:, 2] = np.minimum(cumulative[:, 2], cumulative[:, 1])
+        return cumulative
+
+    def predict_proba(self, X):
+        cumulative = self._cumulative_probabilities(X)
+        probabilities = np.empty((X.shape[0], 4))
+        probabilities[:, 0] = 1.0 - cumulative[:, 0]
+        probabilities[:, 1] = cumulative[:, 0] - cumulative[:, 1]
+        probabilities[:, 2] = cumulative[:, 1] - cumulative[:, 2]
+        probabilities[:, 3] = cumulative[:, 2]
+        return np.clip(probabilities, 0.0, 1.0)
+
+    def predict(self, X):
+        return self.classes_[np.argmax(self.predict_proba(X), axis=1)]
+
+
+def _build_calibrated_classifier(task_config: TaskConfig):
+    """Build the ordinal calibrated Ridge classifier used by severity models."""
+    return OrdinalCalibratedRidgeClassifier(
+        alphas=np.logspace(-3, 3, 10),
+        class_weight=task_config.class_weight,
+        cv=3,
     )
 
 
@@ -95,7 +157,7 @@ def fit_pipeline(
 ) -> Tuple[SignalAugmentation, RocketRepresentationExtractor, Any]:
     augmenter = _build_augmenter(task_config)
     rocket = _build_rocket(task_config)
-    classifier = _build_classifier(task_config)
+    classifier = _build_calibrated_classifier(task_config)
 
     use_signal_aug = task_config.include_fft or task_config.include_diffs
     if use_signal_aug:
