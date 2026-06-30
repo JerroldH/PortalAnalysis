@@ -284,7 +284,14 @@ class BaseInferencePipeline(abc.ABC):
             return None
 
         severity = int(self.model.predict(X)[0])
-        probabilities = self._severity_probability_map(self.model.predict_proba(X)[0])
+        probabilities: Dict[str, float] = {}
+        can_predict_proba = getattr(
+            self.model,
+            "has_predict_proba",
+            lambda: hasattr(self.model, "predict_proba"),
+        )
+        if can_predict_proba():
+            probabilities = self._severity_probability_map(self.model.predict_proba(X)[0])
         confidence = max(probabilities.values()) if probabilities else None
         symptoms = self._predict_symptoms(X, symptom_models) if symptom_models else {}
 

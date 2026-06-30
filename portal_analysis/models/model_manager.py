@@ -36,6 +36,9 @@ class HandMovementModel:
     def predict(self, X: np.ndarray) -> np.ndarray:
         return self.classifier.predict(self._extract(X))
 
+    def has_predict_proba(self) -> bool:
+        return hasattr(self.classifier, "predict_proba")
+
     def predict_proba(self, X: np.ndarray) -> np.ndarray:
         X_feat = self._extract(X)
         if hasattr(self.classifier, "predict_proba"):

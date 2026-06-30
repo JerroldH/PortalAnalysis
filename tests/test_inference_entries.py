@@ -183,6 +183,36 @@ def test_run_from_csv_adds_evidence_fields(tmp_path: Path):
     assert result.artifacts["plot_path"] == str(tmp_path / "plot.png")
 
 
+def test_run_from_csv_omits_confidence_without_probabilities(tmp_path: Path):
+    import numpy as np
+
+    from portal_analysis.inference.finger_tapping import FingerTappingPipeline
+
+    distances_csv = tmp_path / "distances.csv"
+    pd.DataFrame({"Finger Normalized Distance": [0.1, 0.2, 0.4, 0.3, 0.2, 0.1]}).to_csv(
+        distances_csv, index=False
+    )
+
+    class Model:
+        classes = np.array([0, 1, 2, 3])
+
+        def predict(self, X):
+            return np.array([2])
+
+        def has_predict_proba(self):
+            return False
+
+    pipeline = FingerTappingPipeline()
+    pipeline._model = Model()
+    pipeline._save_kinematic_plot = lambda distances_csv, plot_path=None: None
+
+    result = pipeline.run_from_csv("P001_right_finger_tapping", distances_csv)
+
+    assert result.severity == 2
+    assert result.severity_probabilities == {}
+    assert result.confidence is None
+
+
 def test_inference_artifact_paths_under_results(tmp_path: Path):
     processed = tmp_path / "Booth_Processed"
     paths = BatchInferencePipeline._distances_csv_path(
