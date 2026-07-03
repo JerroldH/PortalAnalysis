@@ -177,6 +177,10 @@ def test_run_from_csv_adds_evidence_fields(tmp_path: Path):
     assert result.severity == 2
     assert result.severity_probabilities["2"] == 0.6
     assert result.confidence == 0.6
+    assert result.current_expected_score == pytest.approx(1.7)
+    assert result.ordinal_evidence_score == pytest.approx(1.8)
+    assert result.model_agreement == "reference_unavailable"
+    assert result.evidence_weight == 1.0
     assert result.quality_status == "VALID"
     assert result.quality["valid_signal_count"] == 6
     assert result.clinical_features["signal_range"] == pytest.approx(0.3)
@@ -212,6 +216,8 @@ def test_run_from_csv_omits_confidence_without_probabilities(tmp_path: Path):
     assert result.severity == 2
     assert result.severity_probabilities == {}
     assert result.confidence is None
+    assert result.current_expected_score == 2.0
+    assert result.ordinal_evidence_score == 2.0
 
 
 def test_run_from_video_paths_preserves_evidence_fields(tmp_path: Path):
@@ -223,6 +229,11 @@ def test_run_from_video_paths_preserves_evidence_fields(tmp_path: Path):
                 raw_sequence_length=6,
                 severity_probabilities={"0": 0.1, "1": 0.2, "2": 0.6, "3": 0.1},
                 confidence=0.6,
+                current_expected_score=1.8,
+                ordinal_evidence_score=1.8,
+                reference_prediction=2,
+                model_agreement="consistent",
+                evidence_weight=1.0,
                 quality_status="VALID",
                 quality={"valid_signal_count": 6},
                 clinical_features={"signal_range": 0.3},
@@ -243,6 +254,11 @@ def test_run_from_video_paths_preserves_evidence_fields(tmp_path: Path):
     assert row["patient_id"] == "P001_right_finger_tapping"
     assert row["severity_probabilities"]["2"] == 0.6
     assert row["confidence"] == 0.6
+    assert row["current_expected_score"] == 1.8
+    assert row["ordinal_evidence_score"] == 1.8
+    assert row["reference_prediction"] == 2
+    assert row["model_agreement"] == "consistent"
+    assert row["evidence_weight"] == 1.0
     assert row["quality_status"] == "VALID"
     assert row["quality"]["valid_signal_count"] == 6
     assert row["clinical_features"]["signal_range"] == 0.3

@@ -47,6 +47,16 @@ class InferenceResult:
     quality: Dict[str, Any] = field(default_factory=dict)
     clinical_features: Dict[str, float] = field(default_factory=dict)
     artifacts: Dict[str, str] = field(default_factory=dict)
+    current_model_name: Optional[str] = None
+    current_expected_score: Optional[float] = None
+    ordinal_evidence_score: Optional[float] = None
+    reference_model_name: Optional[str] = None
+    reference_prediction: Optional[int] = None
+    model_agreement: Optional[str] = None
+    agreement_delta: Optional[int] = None
+    agreement_weight: Optional[float] = None
+    quality_weight: Optional[float] = None
+    evidence_weight: Optional[float] = None
 
     def as_dict(self) -> Dict[str, Any]:
         """Flat dict for tabular display (DataFrame / console)."""
@@ -68,6 +78,21 @@ class InferenceResult:
             payload["clinical_features"] = dict(self.clinical_features)
         if self.artifacts:
             payload["artifacts"] = dict(self.artifacts)
+        for key in (
+            "current_model_name",
+            "current_expected_score",
+            "ordinal_evidence_score",
+            "reference_model_name",
+            "reference_prediction",
+            "model_agreement",
+            "agreement_delta",
+            "agreement_weight",
+            "quality_weight",
+            "evidence_weight",
+        ):
+            value = getattr(self, key)
+            if value is not None:
+                payload[key] = value
         return payload
 
     def to_json_dict(
@@ -95,6 +120,21 @@ class InferenceResult:
             payload["clinical_features"] = dict(self.clinical_features)
         if self.artifacts:
             payload["artifacts"] = dict(self.artifacts)
+        for key in (
+            "current_model_name",
+            "current_expected_score",
+            "ordinal_evidence_score",
+            "reference_model_name",
+            "reference_prediction",
+            "model_agreement",
+            "agreement_delta",
+            "agreement_weight",
+            "quality_weight",
+            "evidence_weight",
+        ):
+            value = getattr(self, key)
+            if value is not None:
+                payload[key] = value
         if self.symptoms:
             payload["symptoms"] = dict(self.symptoms)
         return payload
@@ -106,6 +146,7 @@ class BaseInferencePipeline(abc.ABC):
     TASK_NAME: str = ""
     DATA_COLUMN: str = ""
     DEFAULT_MODEL_VERSION: str = "latest"
+    REFERENCE_MODEL_VERSION: str = "v1.0.0"
 
     MAX_SEQUENCE_LENGTH: int = 450
 
@@ -116,6 +157,9 @@ class BaseInferencePipeline(abc.ABC):
     ):
         self._model: Optional[HandMovementModel] = None
         self._model_path: Optional[Path] = model_path
+        self._loaded_model_path: Optional[Path] = None
+        self._reference_model: Optional[HandMovementModel] = None
+        self._reference_checked = False
         self._model_version = model_version
 
     def load_model(self, path: Optional[Path] = None) -> None:
@@ -126,6 +170,7 @@ class BaseInferencePipeline(abc.ABC):
                 path = resolve_model_path(self.TASK_NAME, self._model_version)
 
         self._model = ModelManager.load(path)
+        self._loaded_model_path = Path(path)
         print(f"[{self.TASK_NAME}] Model loaded from {path}")
 
     @property
@@ -170,6 +215,52 @@ class BaseInferencePipeline(abc.ABC):
                 continue
             mapped[key] = float(probability)
         return mapped
+
+    @staticmethod
+    def _expected_score(probabilities: Dict[str, float], fallback: int) -> float:
+        if not probabilities:
+            return float(fallback)
+        return float(sum(score * probabilities.get(str(score), 0.0) for score in range(4)))
+
+    @staticmethod
+    def _ordinal_evidence_score(
+        probabilities: Dict[str, float],
+        prediction: int,
+    ) -> float:
+        if not probabilities:
+            return float(prediction)
+        lower = sum(probabilities.get(str(score), 0.0) for score in range(prediction))
+        higher = sum(probabilities.get(str(score), 0.0) for score in range(prediction + 1, 4))
+        return float(min(3.0, max(0.0, prediction + higher - lower)))
+
+    @staticmethod
+    def _agreement(
+        current_prediction: int,
+        reference_prediction: Optional[int],
+    ) -> tuple[str, Optional[int], float]:
+        if reference_prediction is None:
+            return "reference_unavailable", None, 1.0
+        delta = abs(current_prediction - reference_prediction)
+        if delta == 0:
+            return "consistent", delta, 1.0
+        if delta == 1:
+            return "mixed", delta, 0.6
+        return "low", delta, 0.2
+
+    def _reference_prediction(self, X: np.ndarray) -> Optional[int]:
+        loaded_path = self._loaded_model_path
+        if loaded_path is None or self.REFERENCE_MODEL_VERSION in loaded_path.parts:
+            return None
+        if not self._reference_checked:
+            self._reference_checked = True
+            try:
+                reference_path = resolve_model_path(self.TASK_NAME, self.REFERENCE_MODEL_VERSION)
+            except FileNotFoundError:
+                return None
+            self._reference_model = ModelManager.load(reference_path)
+        if self._reference_model is None:
+            return None
+        return int(self._reference_model.predict(X)[0])
 
     def _quality_and_clinical_features(
         self,
@@ -265,7 +356,8 @@ class BaseInferencePipeline(abc.ABC):
         if not distances_csv.exists():
             return None
 
-        self._save_kinematic_plot(distances_csv, plot_path=plot_path)
+        if plot_path is not None:
+            self._save_kinematic_plot(distances_csv, plot_path=plot_path)
 
         df = pd.read_csv(distances_csv)
         quality_status, quality, clinical_features = self._quality_and_clinical_features(df)
@@ -294,6 +386,17 @@ class BaseInferencePipeline(abc.ABC):
             probabilities = self._severity_probability_map(self.model.predict_proba(X)[0])
         confidence = max(probabilities.values()) if probabilities else None
         symptoms = self._predict_symptoms(X, symptom_models) if symptom_models else {}
+        expected_score = self._expected_score(probabilities, severity)
+        ordinal_evidence_score = self._ordinal_evidence_score(
+            probabilities,
+            severity,
+        )
+        reference_prediction = self._reference_prediction(X)
+        agreement, agreement_delta, agreement_weight = self._agreement(
+            severity,
+            reference_prediction,
+        )
+        quality_weight = 1.0 if quality_status == "VALID" else 0.5
 
         artifacts = {"distances_csv": str(distances_csv)}
         if plot_path is not None:
@@ -310,6 +413,16 @@ class BaseInferencePipeline(abc.ABC):
             quality=quality,
             clinical_features=clinical_features,
             artifacts=artifacts,
+            current_model_name=f"portal_analysis_{self._model_version}",
+            current_expected_score=expected_score,
+            ordinal_evidence_score=ordinal_evidence_score,
+            reference_model_name=f"portal_analysis_{self.REFERENCE_MODEL_VERSION}",
+            reference_prediction=reference_prediction,
+            model_agreement=agreement,
+            agreement_delta=agreement_delta,
+            agreement_weight=agreement_weight,
+            quality_weight=quality_weight,
+            evidence_weight=agreement_weight * quality_weight,
         )
 
     def run_from_pose(

@@ -235,6 +235,22 @@ class BatchInferencePipeline:
             payload["quality_status"] = str(quality_status)
 
         for key in (
+            "current_model_name",
+            "current_expected_score",
+            "ordinal_evidence_score",
+            "reference_model_name",
+            "reference_prediction",
+            "model_agreement",
+            "agreement_delta",
+            "agreement_weight",
+            "quality_weight",
+            "evidence_weight",
+        ):
+            value = row.get(key)
+            if value is not None and pd.notna(value):
+                payload[key] = value
+
+        for key in (
             "severity_probabilities",
             "quality",
             "clinical_features",
