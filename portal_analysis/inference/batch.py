@@ -815,12 +815,7 @@ class BatchInferencePipeline:
                         **pose_kwargs
                     )
                     if result is not None and task_name == "both_still":
-                        result = InferenceResult(
-                            patient_id=recording_id,
-                            severity=result.severity,
-                            symptoms=result.symptoms,
-                            raw_sequence_length=result.raw_sequence_length,
-                        )
+                        result.patient_id = recording_id
 
                     if result is not None:
                         row = result.as_dict()
@@ -903,12 +898,7 @@ class BatchInferencePipeline:
                 pose_kwargs["processed_dir"] = processed_dir
             result = pipeline.run_from_pose(**pose_kwargs)
             if result is not None and entry.task_name == "both_still":
-                result = InferenceResult(
-                    patient_id=recording_id,
-                    severity=result.severity,
-                    symptoms=result.symptoms,
-                    raw_sequence_length=result.raw_sequence_length,
-                )
+                result.patient_id = recording_id
 
             if result is not None:
                 row = result.as_dict()
@@ -991,12 +981,7 @@ class BatchInferencePipeline:
                 video_kwargs["processed_dir"] = processed_dir
             result = pipeline.run_from_video(**video_kwargs)
             if result is not None:
-                result = InferenceResult(
-                    patient_id=recording_id,
-                    severity=result.severity,
-                    symptoms=result.symptoms,
-                    raw_sequence_length=result.raw_sequence_length,
-                )
+                result.patient_id = recording_id
 
             if result is not None:
                 row = result.as_dict()
@@ -1082,12 +1067,7 @@ class BatchInferencePipeline:
                         video_kwargs["processed_dir"] = processed_dir
                     result = pipeline.run_from_video(**video_kwargs)
                     if result is not None:
-                        result = InferenceResult(
-                            patient_id=recording_id,
-                            severity=result.severity,
-                            symptoms=result.symptoms,
-                            raw_sequence_length=result.raw_sequence_length,
-                        )
+                        result.patient_id = recording_id
 
                     if result is not None:
                         row = result.as_dict()

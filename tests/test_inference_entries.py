@@ -7,6 +7,7 @@ import pandas as pd
 import pytest
 
 from portal_analysis.inference.batch import BatchInferencePipeline
+from portal_analysis.inference.base import InferenceResult
 
 
 def test_distances_entries_inferred_from_stem():
@@ -211,6 +212,41 @@ def test_run_from_csv_omits_confidence_without_probabilities(tmp_path: Path):
     assert result.severity == 2
     assert result.severity_probabilities == {}
     assert result.confidence is None
+
+
+def test_run_from_video_paths_preserves_evidence_fields(tmp_path: Path):
+    class Pipeline:
+        def run_from_video(self, **kwargs):
+            return InferenceResult(
+                patient_id=kwargs["patient_id"],
+                severity=2,
+                raw_sequence_length=6,
+                severity_probabilities={"0": 0.1, "1": 0.2, "2": 0.6, "3": 0.1},
+                confidence=0.6,
+                quality_status="VALID",
+                quality={"valid_signal_count": 6},
+                clinical_features={"signal_range": 0.3},
+                artifacts={"distances_csv": "distances.csv"},
+            )
+
+    batch = BatchInferencePipeline()
+    batch._pipelines["finger_tapping"] = Pipeline()
+
+    entries = BatchInferencePipeline.entries_from_video_paths(
+        patient_id="P001",
+        video_paths=[tmp_path / "right_finger_tapping.mp4"],
+        hands="right",
+    )
+    frame = batch.run_from_video_paths(entries, processed_dir=tmp_path)
+    row = frame.iloc[0]
+
+    assert row["patient_id"] == "P001_right_finger_tapping"
+    assert row["severity_probabilities"]["2"] == 0.6
+    assert row["confidence"] == 0.6
+    assert row["quality_status"] == "VALID"
+    assert row["quality"]["valid_signal_count"] == 6
+    assert row["clinical_features"]["signal_range"] == 0.3
+    assert row["artifacts"]["distances_csv"] == "distances.csv"
 
 
 def test_inference_artifact_paths_under_results(tmp_path: Path):
