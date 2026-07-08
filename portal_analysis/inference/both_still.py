@@ -92,6 +92,7 @@ class BothStillPipeline(BaseInferencePipeline):
         video_width: int = 1920,
         video_height: int = 1080,
         plot_path: Optional[Path] = None,
+        source_video_path: Optional[Path] = None,
         *,
         subtask: str = "left",
         processed_dir: Optional[Path] = None,
@@ -121,7 +122,11 @@ class BothStillPipeline(BaseInferencePipeline):
         recording_id = self.hand_distances_stem(patient_id, subtask)
         result = self._with_artifact(
             self.run_from_csv(
-                recording_id, distances_csv, symptom_models, plot_path=plot_path
+                recording_id,
+                distances_csv,
+                symptom_models,
+                plot_path=plot_path,
+                source_video_path=source_video_path,
             ),
             "pose_csv",
             pose_csv,
@@ -168,6 +173,7 @@ class BothStillPipeline(BaseInferencePipeline):
                 plot_path=plot_path,
                 subtask=subtask,
                 processed_dir=proc_dir,
+                source_video_path=video_path,
             ),
             "video_path",
             video_path,

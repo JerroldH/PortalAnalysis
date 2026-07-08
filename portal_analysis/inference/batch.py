@@ -41,6 +41,7 @@ class DistancesInferenceEntry:
     task_name: str
     subtask: str
     distances_csv: Path
+    source_video_path: Optional[Path] = None
 
 
 @dataclass(frozen=True)
@@ -423,6 +424,7 @@ class BatchInferencePipeline:
         cls,
         patient_id: str,
         distances_paths: List[Path],
+        source_video_paths: Optional[List[Path]] = None,
         tasks: Optional[List[str]] = None,
         hands: str = "both",
         task: Optional[str] = None,
@@ -444,14 +446,21 @@ class BatchInferencePipeline:
             stem_suffix="_distances",
             file_label="distances CSV",
         )
+        if source_video_paths is not None and len(source_video_paths) != len(tuples):
+            raise ValueError(
+                "--source-video-path must be provided once per inferred distances entry."
+            )
         return [
             DistancesInferenceEntry(
                 patient_id=patient_id,
                 task_name=task_name,
                 subtask=subtask,
                 distances_csv=path,
+                source_video_path=(
+                    Path(source_video_paths[index]) if source_video_paths is not None else None
+                ),
             )
-            for task_name, subtask, path in tuples
+            for index, (task_name, subtask, path) in enumerate(tuples)
         ]
 
     @classmethod
@@ -607,6 +616,24 @@ class BatchInferencePipeline:
         return legacy if legacy.exists() else results_path
 
     @classmethod
+    def _resolve_source_video_path(
+        cls,
+        processed_dir: Path,
+        task_name: str,
+        subtask: str,
+        patient_id: str,
+        video_stem: str,
+    ) -> Optional[Path]:
+        path = (
+            Path(processed_dir)
+            / task_name
+            / subtask
+            / "videos"
+            / f"{patient_id}_{video_stem}.mp4"
+        )
+        return path if path.exists() else None
+
+    @classmethod
     def _plot_png_path(
         cls,
         processed_dir: Path,
@@ -685,6 +712,13 @@ class BatchInferencePipeline:
                         distances_csv=csv_path,
                         symptom_models=self._symptom_models_for(task_name),
                         plot_path=plot_path,
+                        source_video_path=self._resolve_source_video_path(
+                            distances_dir,
+                            task_name,
+                            subtask,
+                            patient_id,
+                            video_stem,
+                        ),
                     )
 
                     if result is not None:
@@ -741,6 +775,7 @@ class BatchInferencePipeline:
                 distances_csv=entry.distances_csv,
                 symptom_models=self._symptom_models_for(entry.task_name),
                 plot_path=plot_path,
+                source_video_path=entry.source_video_path,
             )
 
             if result is not None:

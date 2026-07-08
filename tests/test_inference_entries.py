@@ -22,6 +22,17 @@ def test_distances_entries_inferred_from_stem():
     assert entries[0].distances_csv.name == "right_finger_tapping_distances.csv"
 
 
+def test_distances_entries_preserve_source_video_path():
+    entries = BatchInferencePipeline.entries_from_distances_paths(
+        patient_id="P001",
+        distances_paths=[Path("right_finger_tapping_distances.csv")],
+        source_video_paths=[Path("right_finger_tapping.mp4")],
+        hands="right",
+    )
+
+    assert entries[0].source_video_path == Path("right_finger_tapping.mp4")
+
+
 def test_distances_entries_with_subject_prefix():
     entries = BatchInferencePipeline.entries_from_distances_paths(
         patient_id="SUBJECT_001",
@@ -143,6 +154,56 @@ def test_clinical_summary_handles_empty_signal():
     assert status == "TOO_SHORT"
     assert quality["valid_signal_count"] == 0
     assert clinical == {}
+
+
+def test_clinical_summary_resamples_frame_signal_to_clinical_fps():
+    import numpy as np
+
+    from portal_analysis.inference.finger_tapping import FingerTappingPipeline
+
+    pipeline = FingerTappingPipeline()
+    pipeline._video_metadata = lambda source_video_path: {
+        "source_video_path": str(source_video_path),
+        "source_fps": 60.0,
+        "source_frame_count": 61,
+        "duration_s": 61 / 60.0,
+        "temporal_source_video_status": "OK",
+    }
+    frame = pd.DataFrame(
+        {
+            "Frame": np.arange(61),
+            "Finger Normalized Distance": np.linspace(0.0, 1.0, 61),
+        }
+    )
+
+    status, quality, clinical = pipeline._quality_and_clinical_features(
+        frame,
+        source_video_path=Path("source.mp4"),
+    )
+
+    assert status == "VALID"
+    assert quality["clinical_fps"] == 30.0
+    assert quality["source_fps"] == 60.0
+    assert quality["time_source"] == "Frame"
+    assert quality["clinical_temporal_status"] == "OK"
+    assert quality["resampled_signal_count"] == 31
+    assert clinical["clinical_fps"] == 30.0
+    assert clinical["signal_range"] == pytest.approx(1.0)
+    assert clinical["mean_abs_delta"] == pytest.approx(1.0 / 30.0)
+
+
+def test_clinical_summary_without_video_omits_temporal_features():
+    from portal_analysis.inference.finger_tapping import FingerTappingPipeline
+
+    pipeline = FingerTappingPipeline()
+    frame = pd.DataFrame({"Finger Normalized Distance": [0.1, 0.3, 0.2, 0.5]})
+
+    status, quality, clinical = pipeline._quality_and_clinical_features(frame)
+
+    assert status == "TOO_SHORT"
+    assert quality["clinical_temporal_status"] == "MISSING_TIME_AXIS"
+    assert clinical["signal_range"] == pytest.approx(0.4)
+    assert "mean_abs_delta" not in clinical
 
 
 def test_run_from_csv_adds_evidence_fields(tmp_path: Path):

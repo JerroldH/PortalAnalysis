@@ -42,6 +42,7 @@ class HandOpenClosePipeline(BaseInferencePipeline):
         video_width: int = 1920,
         video_height: int = 1080,
         plot_path: Optional[Path] = None,
+        source_video_path: Optional[Path] = None,
     ) -> Optional[InferenceResult]:
         """Convert pose landmarks to open/close distances, then run inference."""
         from portal_analysis.preprocessing.distances import DistanceCalculator
@@ -60,7 +61,11 @@ class HandOpenClosePipeline(BaseInferencePipeline):
         calc.calculate_hand_open_close_distances(pose_csv, distances_csv)
         return self._with_artifact(
             self.run_from_csv(
-                patient_id, distances_csv, symptom_models, plot_path=plot_path
+                patient_id,
+                distances_csv,
+                symptom_models,
+                plot_path=plot_path,
+                source_video_path=source_video_path,
             ),
             "pose_csv",
             pose_csv,

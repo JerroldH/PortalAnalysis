@@ -35,6 +35,9 @@ from portal_analysis.models.model_manager import HandMovementModel, ModelManager
 from portal_analysis.models.paths import resolve_model_path
 
 
+TARGET_CLINICAL_FPS = 30.0
+
+
 @dataclass
 class InferenceResult:
     patient_id: str
@@ -265,6 +268,7 @@ class BaseInferencePipeline(abc.ABC):
     def _quality_and_clinical_features(
         self,
         df: pd.DataFrame,
+        source_video_path: Optional[Path] = None,
     ) -> tuple[str, Dict[str, Any], Dict[str, float]]:
         raw_len = int(len(df))
         if self.DATA_COLUMN not in df.columns:
@@ -275,38 +279,162 @@ class BaseInferencePipeline(abc.ABC):
                     "raw_sequence_length": raw_len,
                     "valid_signal_count": 0,
                     "max_sequence_length": self.MAX_SEQUENCE_LENGTH,
+                    "clinical_fps": TARGET_CLINICAL_FPS,
+                    "clinical_temporal_status": "MISSING_COLUMN",
                 },
                 {},
             )
 
-        signal = pd.to_numeric(df[self.DATA_COLUMN], errors="coerce").dropna()
-        values = signal.to_numpy(dtype=float)
+        video_metadata = self._video_metadata(source_video_path)
+        values, time_values, time_source = self._signal_and_time_values(
+            df,
+            source_fps=video_metadata.get("source_fps"),
+            duration_s=video_metadata.get("duration_s"),
+        )
         valid_count = int(len(values))
         quality = {
             "data_column": self.DATA_COLUMN,
             "raw_sequence_length": raw_len,
             "valid_signal_count": valid_count,
             "max_sequence_length": self.MAX_SEQUENCE_LENGTH,
+            "clinical_fps": TARGET_CLINICAL_FPS,
+            **video_metadata,
         }
         status = "VALID" if raw_len >= 5 and valid_count > 0 else "TOO_SHORT"
         if valid_count == 0:
+            quality["clinical_temporal_status"] = "TOO_SHORT"
             return status, quality, {}
 
-        delta = np.diff(values)
-        first_n = max(valid_count // 3, 1)
-        last_n = first_n
-        clinical = {
+        clinical = self._signal_summary(values, include_temporal=False)
+        resampled, temporal_status = self._resample_to_target_fps(values, time_values)
+        quality["clinical_temporal_status"] = temporal_status
+        quality["time_source"] = time_source
+        if resampled is not None:
+            clinical = self._signal_summary(resampled, include_temporal=True)
+            clinical["clinical_fps"] = TARGET_CLINICAL_FPS
+            quality["resampled_signal_count"] = int(len(resampled))
+        return status, quality, clinical
+
+    def _video_metadata(self, source_video_path: Optional[Path]) -> Dict[str, Any]:
+        if source_video_path is None:
+            return {"temporal_source_video_status": "MISSING_SOURCE_VIDEO"}
+
+        path = Path(source_video_path)
+        metadata: Dict[str, Any] = {
+            "source_video_path": str(path),
+            "temporal_source_video_status": "MISSING_SOURCE_VIDEO",
+        }
+        if not path.exists():
+            return metadata
+
+        try:
+            import cv2
+        except ModuleNotFoundError:
+            metadata["temporal_source_video_status"] = "CV2_UNAVAILABLE"
+            return metadata
+
+        cap = cv2.VideoCapture(str(path))
+        try:
+            if not cap.isOpened():
+                metadata["temporal_source_video_status"] = "VIDEO_OPEN_FAILED"
+                return metadata
+            fps = float(cap.get(cv2.CAP_PROP_FPS) or 0.0)
+            frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+        finally:
+            cap.release()
+
+        metadata["source_frame_count"] = frame_count
+        if fps > 0:
+            metadata["source_fps"] = fps
+            if frame_count > 0:
+                metadata["duration_s"] = float(frame_count / fps)
+            metadata["temporal_source_video_status"] = "OK"
+        else:
+            metadata["temporal_source_video_status"] = "FPS_UNAVAILABLE"
+        return metadata
+
+    def _signal_and_time_values(
+        self,
+        df: pd.DataFrame,
+        *,
+        source_fps: Optional[float],
+        duration_s: Optional[float],
+    ) -> tuple[np.ndarray, Optional[np.ndarray], str]:
+        signal = pd.to_numeric(df[self.DATA_COLUMN], errors="coerce")
+        valid = signal.notna()
+        values = signal.loc[valid].to_numpy(dtype=float)
+        valid_df = df.loc[valid]
+
+        for col in ("timestamp_s", "time_s", "timestamp", "time", "Time"):
+            if col not in valid_df.columns:
+                continue
+            times = pd.to_numeric(valid_df[col], errors="coerce").to_numpy(dtype=float)
+            if np.isfinite(times).all() and len(times) == len(values):
+                return values, times - float(np.min(times)), col
+
+        for col in ("Frame", "frame", "frame_number"):
+            if col not in valid_df.columns or source_fps is None or source_fps <= 0:
+                continue
+            frames = pd.to_numeric(valid_df[col], errors="coerce").to_numpy(dtype=float)
+            if np.isfinite(frames).all() and len(frames) == len(values):
+                return values, (frames - float(np.min(frames))) / float(source_fps), col
+
+        if duration_s is not None and duration_s > 0 and len(values) > 1:
+            return values, np.linspace(0.0, float(duration_s), len(values), endpoint=False), "row_index_duration"
+
+        return values, None, "unavailable"
+
+    def _resample_to_target_fps(
+        self,
+        values: np.ndarray,
+        time_values: Optional[np.ndarray],
+    ) -> tuple[Optional[np.ndarray], str]:
+        if time_values is None or len(values) < 2:
+            return None, "MISSING_TIME_AXIS"
+
+        frame = pd.DataFrame({"time": time_values, "value": values}).dropna()
+        frame = frame[np.isfinite(frame["time"]) & np.isfinite(frame["value"])]
+        if frame.empty:
+            return None, "MISSING_TIME_AXIS"
+
+        grouped = frame.groupby("time", as_index=False)["value"].mean().sort_values("time")
+        times = grouped["time"].to_numpy(dtype=float)
+        signal = grouped["value"].to_numpy(dtype=float)
+        times = times - float(times[0])
+        duration = float(times[-1])
+        if len(times) < 2 or duration <= 0:
+            return None, "TOO_SHORT_FOR_RESAMPLING"
+
+        target_times = np.arange(0.0, duration + (0.5 / TARGET_CLINICAL_FPS), 1.0 / TARGET_CLINICAL_FPS)
+        if len(target_times) < 2:
+            return None, "TOO_SHORT_FOR_RESAMPLING"
+        return np.interp(target_times, times, signal), "OK"
+
+    def _signal_summary(
+        self,
+        values: np.ndarray,
+        *,
+        include_temporal: bool,
+    ) -> Dict[str, float]:
+        summary = {
             "signal_mean": float(np.mean(values)),
             "signal_std": float(np.std(values)),
             "signal_min": float(np.min(values)),
             "signal_max": float(np.max(values)),
             "signal_range": float(np.max(values) - np.min(values)),
-            "mean_abs_delta": float(np.mean(np.abs(delta))) if len(delta) else 0.0,
-            "max_abs_delta": float(np.max(np.abs(delta))) if len(delta) else 0.0,
-            "early_late_delta": float(np.mean(values[-last_n:]) - np.mean(values[:first_n])),
-            "delta_std": float(np.std(delta)) if len(delta) else 0.0,
         }
-        return status, quality, clinical
+        if include_temporal:
+            delta = np.diff(values)
+            first_n = max(len(values) // 3, 1)
+            summary.update(
+                {
+                    "mean_abs_delta": float(np.mean(np.abs(delta))) if len(delta) else 0.0,
+                    "max_abs_delta": float(np.max(np.abs(delta))) if len(delta) else 0.0,
+                    "early_late_delta": float(np.mean(values[-first_n:]) - np.mean(values[:first_n])),
+                    "delta_std": float(np.std(delta)) if len(delta) else 0.0,
+                }
+            )
+        return summary
 
     def _with_artifact(
         self,
@@ -351,6 +479,7 @@ class BaseInferencePipeline(abc.ABC):
         distances_csv: Path,
         symptom_models: Optional[Dict[str, HandMovementModel]] = None,
         plot_path: Optional[Path] = None,
+        source_video_path: Optional[Path] = None,
     ) -> Optional[InferenceResult]:
         distances_csv = Path(distances_csv)
         if not distances_csv.exists():
@@ -360,7 +489,10 @@ class BaseInferencePipeline(abc.ABC):
             self._save_kinematic_plot(distances_csv, plot_path=plot_path)
 
         df = pd.read_csv(distances_csv)
-        quality_status, quality, clinical_features = self._quality_and_clinical_features(df)
+        quality_status, quality, clinical_features = self._quality_and_clinical_features(
+            df,
+            source_video_path=source_video_path,
+        )
         X = self._prepare_sequence_from_frame(df)
         if X is None:
             if self.DATA_COLUMN not in df.columns:
@@ -399,6 +531,8 @@ class BaseInferencePipeline(abc.ABC):
         quality_weight = 1.0 if quality_status == "VALID" else 0.5
 
         artifacts = {"distances_csv": str(distances_csv)}
+        if source_video_path is not None:
+            artifacts["source_video_path"] = str(Path(source_video_path))
         if plot_path is not None:
             artifacts["plot_path"] = str(Path(plot_path))
 
@@ -434,6 +568,7 @@ class BaseInferencePipeline(abc.ABC):
         video_width: int = 1920,
         video_height: int = 1080,
         plot_path: Optional[Path] = None,
+        source_video_path: Optional[Path] = None,
     ) -> Optional[InferenceResult]:
         """Convert a MediaPipe pose CSV to distances, then run inference."""
         from portal_analysis.preprocessing.distances import DistanceCalculator
@@ -452,7 +587,11 @@ class BaseInferencePipeline(abc.ABC):
         calc.calculate_distances(pose_csv, distances_csv)
         return self._with_artifact(
             self.run_from_csv(
-                patient_id, distances_csv, symptom_models, plot_path=plot_path
+                patient_id,
+                distances_csv,
+                symptom_models,
+                plot_path=plot_path,
+                source_video_path=source_video_path,
             ),
             "pose_csv",
             pose_csv,
@@ -494,6 +633,7 @@ class BaseInferencePipeline(abc.ABC):
                 video_width=video_width,
                 video_height=video_height,
                 plot_path=plot_path,
+                source_video_path=video_path,
             ),
             "video_path",
             video_path,

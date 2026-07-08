@@ -5,6 +5,7 @@ Examples::
 
     python scripts/run_inference.py --mode csv --patient-id P001 --processed-dir N:/Booth_Processed --with-symptoms
     python scripts/run_inference.py --mode csv --patient-id P001 --distances-path path/to/right_finger_tapping_distances.csv
+    python scripts/run_inference.py --mode csv --patient-id P001 --distances-path path/to/right_finger_tapping_distances.csv --source-video-path path/to/right_finger_tapping.mp4
     python scripts/run_inference.py --mode pose --patient-id P001 --processed-dir N:/Booth_Processed
     python scripts/run_inference.py --mode pose --patient-id P001 --processed-dir N:/Booth_Processed --pose-path path/to/right_finger_tapping.csv
     python scripts/run_inference.py --mode video --patient-id P001 --raw-dir N:/.../Booth --processed-dir N:/Booth_Processed
@@ -70,6 +71,14 @@ def parse_args():
         help="Distances CSV for csv mode (repeatable). Task/side from filename, or --task + --hand.",
     )
     p.add_argument(
+        "--source-video-path",
+        type=Path,
+        action="append",
+        default=None,
+        metavar="PATH",
+        help="Source MP4 for csv mode clinical timing metadata (repeatable; pair with --distances-path).",
+    )
+    p.add_argument(
         "--pose-path",
         type=Path,
         action="append",
@@ -119,6 +128,7 @@ def main():
                 entries = BatchInferencePipeline.entries_from_distances_paths(
                     patient_id=args.patient_id[0],
                     distances_paths=args.distances_path,
+                    source_video_paths=args.source_video_path,
                     tasks=args.tasks,
                     hands=args.hand,
                     task=args.task,
